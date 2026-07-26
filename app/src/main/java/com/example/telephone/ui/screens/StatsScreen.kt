@@ -1,7 +1,6 @@
 package com.example.telephone.ui.screens
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,9 +14,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.Button
@@ -27,16 +27,23 @@ import androidx.compose.material3.DatePickerDefaults
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.PlainTooltip
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TooltipAnchorPosition
+import androidx.compose.material3.TooltipBox
+import androidx.compose.material3.TooltipDefaults
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.rememberDatePickerState
+import androidx.compose.material3.rememberTooltipState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -59,13 +66,17 @@ import com.example.telephone.ui.CallBackground
 import com.example.telephone.ui.CallButtonColor
 import com.example.telephone.ui.CallHangupColor
 import com.example.telephone.ui.CallMutedText
+import com.example.telephone.ui.CallSurfaceColor
 import com.example.telephone.ui.CallText
 import com.example.telephone.ui.UiSmallIconSize
 import com.example.telephone.ui.components.AppCard
+import com.example.telephone.ui.components.AutoSearchChoiceRow
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import kotlin.concurrent.thread
+import kotlin.math.roundToInt
+import kotlinx.coroutines.launch
 
 internal class StatsViewModel : ViewModel() {
     var teams by mutableStateOf<List<AppTeam>>(emptyList())
@@ -283,7 +294,10 @@ private fun StatsFilters(
         Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text("统计筛选", color = CallText, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text("统计筛选", color = CallText, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                        StatsFilterTip()
+                    }
                     Text(filterSummary(teams, members, teamId, employeeId, startDate, endDate), color = CallMutedText, style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
                 Button(onClick = { expanded = !expanded }, modifier = Modifier.height(32.dp), shape = RoundedCornerShape(16.dp), contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp), colors = ButtonDefaults.buttonColors(containerColor = CallButtonColor, contentColor = CallText)) {
@@ -293,15 +307,16 @@ private fun StatsFilters(
                 }
             }
             if (expanded) {
-                ChoiceRow("团队", teams.map { it.id to it.teamName }, teamId, onTeam)
-                ChoiceRow("员工", members.map { it.id to memberName(it) }, employeeId, onEmployee)
-                ChoiceRow(
+                AutoSearchChoiceRow("团队", teams.map { it.id as Int? to it.teamName }, teamId, onSelect = { it?.let(onTeam) })
+                AutoSearchChoiceRow("员工", members.map { it.id as Int? to memberName(it) }, employeeId, onSelect = { it?.let(onEmployee) })
+                AutoSearchChoiceRow(
                     "时间",
-                    listOf(0 to "全部", 1 to "今天", 7 to "近7天", 30 to "近30天"),
+                    listOf<Pair<Int?, String>>(0 to "全部", 1 to "今天", 7 to "近7天", 30 to "近30天"),
                     quickDays(startDate, endDate) ?: if (startDate == null && endDate == null) 0 else null,
-                ) { days ->
-                    if (days == 0) onDates(null, null) else onDates(LocalDate.now().minusDays((days - 1).toLong()), LocalDate.now())
-                }
+                    onSelect = { days ->
+                        if (days == 0) onDates(null, null) else days?.let { onDates(LocalDate.now().minusDays((it - 1).toLong()), LocalDate.now()) }
+                    },
+                )
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     DateButton("开始", startDate, Modifier.weight(1f), selected = startDate != null) { picking = StatsDateField.Start }
                     DateButton("结束", endDate, Modifier.weight(1f), selected = endDate != null) { picking = StatsDateField.End }
@@ -321,18 +336,71 @@ private fun StatsFilters(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun StatsFilterTip() {
+    val text = "团队筛选仅针对团队排名生效，统计数量和时长不受影响。"
+    val state = rememberTooltipState(isPersistent = true)
+    val scope = rememberCoroutineScope()
+    TooltipBox(
+        positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above),
+        tooltip = {
+            PlainTooltip(containerColor = CallSurfaceColor, contentColor = CallText, shadowElevation = 4.dp) {
+                Text(text, style = MaterialTheme.typography.labelMedium)
+            }
+        },
+        state = state,
+    ) {
+        IconButton(onClick = { scope.launch { state.show() } }, modifier = Modifier.size(26.dp)) {
+            Icon(Icons.Filled.Info, "统计筛选说明", modifier = Modifier.size(16.dp), tint = CallMutedText)
+        }
+    }
+}
+
 @Composable
 private fun SummaryCards(stats: StatisticsStats, teamRank: StatisticsRank?, totalRank: StatisticsRank?) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             StatCard("沟通客户", stats.communicatedCustomers, rankInfo(teamRank, totalRank) { it.ranks.communicatedCustomers }, Modifier.weight(1f))
-            StatCard("沟通次数", stats.communicationCount, rankInfo(teamRank, totalRank) { it.ranks.communicationCount }, Modifier.weight(1f))
+            DualStatCard("沟通次数", stats.communicationCount, "有效次数", stats.effectiveCommunicationCount, rankInfo(teamRank, totalRank) { it.ranks.communicationCount }, Modifier.weight(1f))
         }
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             StatCard("成交客户", stats.dealCustomers, rankInfo(teamRank, totalRank) { it.ranks.dealCustomers }, Modifier.weight(1f))
             StatCard("转化率", "${stats.conversionRate}%", rankInfo(teamRank, totalRank) { it.ranks.conversionRate }, Modifier.weight(1f))
         }
-        StatCard("通话时长", formatDuration(stats.durationSeconds), rankInfo(teamRank, totalRank) { it.ranks.durationSeconds }, Modifier.fillMaxWidth())
+        DualStatCard(
+            "总通话时长",
+            formatDuration(stats.durationSeconds),
+            "平均时长",
+            formatDuration(stats.averageDurationSeconds),
+            rankInfo(teamRank, totalRank) { it.ranks.durationSeconds },
+            Modifier.fillMaxWidth(),
+        )
+    }
+}
+
+@Composable
+private fun DualStatCard(primaryTitle: String, primaryValue: Any, secondaryTitle: String, secondaryValue: Any, rank: RankInfo, modifier: Modifier = Modifier) {
+    AppCard(modifier = modifier) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                StatValue(primaryTitle, primaryValue)
+                Box(Modifier.size(5.dp).clip(CircleShape).background(CallActiveBlue))
+                StatValue(secondaryTitle, secondaryValue)
+            }
+            Text(rank.text, color = CallMutedText, style = MaterialTheme.typography.labelSmall)
+            Box(Modifier.fillMaxWidth().height(5.dp).clip(RoundedCornerShape(5.dp)).background(CallButtonColor)) {
+                Box(Modifier.fillMaxWidth(rank.progress).height(5.dp).background(CallActiveBlue))
+            }
+        }
+    }
+}
+
+@Composable
+private fun StatValue(title: String, value: Any, modifier: Modifier = Modifier) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(title, color = CallMutedText, style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text("$value", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = CallText, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
@@ -347,34 +415,6 @@ private fun StatCard(title: String, value: Any, rank: RankInfo, modifier: Modifi
                 Box(Modifier.fillMaxWidth(rank.progress).height(5.dp).background(CallActiveBlue))
             }
         }
-    }
-}
-
-@Composable
-private fun ChoiceRow(label: String, options: List<Pair<Int, String>>, selected: Int?, onSelect: (Int) -> Unit) {
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text(label, color = CallMutedText, style = MaterialTheme.typography.labelMedium)
-        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            options.forEach { (value, text) ->
-                FilterButton(text, selected == value) { onSelect(value) }
-            }
-        }
-    }
-}
-
-@Composable
-private fun FilterButton(label: String, selected: Boolean, onClick: () -> Unit) {
-    Button(
-        onClick = onClick,
-        modifier = Modifier.height(30.dp),
-        shape = RoundedCornerShape(15.dp),
-        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
-        colors = ButtonDefaults.buttonColors(
-            containerColor = if (selected) CallActiveBlue else CallButtonColor,
-            contentColor = if (selected) CallActionContent else CallText,
-        ),
-    ) {
-        Text(label, style = MaterialTheme.typography.labelMedium, maxLines = 1)
     }
 }
 
@@ -492,4 +532,15 @@ private fun formatDuration(seconds: Int): String {
     val hours = seconds / 3600
     val minutes = seconds % 3600 / 60
     return if (hours > 0) "${hours}小时${minutes}分" else "${minutes}分${seconds % 60}秒"
+}
+
+private fun formatDuration(seconds: Double): String {
+    val safeSeconds = if (seconds.isFinite()) seconds.coerceAtLeast(0.0) else 0.0
+    val tenths = (safeSeconds * 10).roundToInt()
+    val totalSeconds = tenths / 10
+    val tenth = tenths % 10
+    val hours = totalSeconds / 3600
+    val minutes = totalSeconds % 3600 / 60
+    val secondText = if (tenth > 0) "${totalSeconds % 60}.${tenth}秒" else "${totalSeconds % 60}秒"
+    return if (hours > 0) "${hours}小时${minutes}分${secondText}" else "${minutes}分$secondText"
 }

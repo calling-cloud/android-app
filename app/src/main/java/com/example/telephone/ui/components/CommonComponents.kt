@@ -12,16 +12,21 @@ import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Autorenew
 import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Gavel
 import androidx.compose.material.icons.filled.PersonOff
 import androidx.compose.material3.AlertDialog
@@ -45,6 +50,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -52,10 +58,13 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import com.example.telephone.formatDuration
 import com.example.telephone.formatPhone
 import com.example.telephone.model.CallState
@@ -81,6 +90,7 @@ import com.example.telephone.ui.UiButtonHeight
 import com.example.telephone.ui.UiButtonRadius
 import com.example.telephone.ui.UiCardPadding
 import com.example.telephone.ui.UiIconSize
+import com.example.telephone.ui.intentLevelLabel
 
 @Composable
 internal fun CustomerCard(
@@ -94,6 +104,7 @@ internal fun CustomerCard(
     onReset: () -> Unit,
     onMarkInvalid: () -> Unit,
     onMarkDeal: () -> Unit,
+    onCopyPhone: ((Customer) -> Unit)? = null,
     onCall: (Customer) -> Unit,
 ) {
     val progressPage = if (total > 0) page.coerceAtMost(total) else 0
@@ -127,7 +138,24 @@ internal fun CustomerCard(
                         Column(Modifier.weight(1f)) {
                             Text(customer.name, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = CallText)
                             Spacer(Modifier.height(4.dp))
-                            Text(formatPhone(customer.phone), style = MaterialTheme.typography.bodyLarge, color = CallMutedText)
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    formatPhone(customer.phone),
+                                    modifier = Modifier.weight(1f),
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = CallMutedText,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                if (onCopyPhone != null) {
+                                    IconButton(
+                                        onClick = { onCopyPhone(customer) },
+                                        modifier = Modifier.size(36.dp),
+                                    ) {
+                                        Icon(Icons.Filled.ContentCopy, "复制电话", modifier = Modifier.size(18.dp), tint = CallMutedText)
+                                    }
+                                }
+                            }
                         }
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
@@ -328,7 +356,7 @@ internal fun RoundAction(icon: Int, label: String, selected: Boolean = false, ac
 
 @Composable
 internal fun CallResultForm(call: CallUi, message: String = "", marking: Boolean = false, onMarkInvalid: () -> Unit, onMarkDeal: () -> Unit, onSubmit: (Int, String) -> Unit) {
-    var intent by remember { mutableIntStateOf(3) }
+    var intent by remember { mutableIntStateOf(1) }
     var remark by remember { mutableStateOf("") }
     var pendingStatus by remember { mutableIntStateOf(0) }
     if (pendingStatus != 0) {
@@ -359,106 +387,159 @@ internal fun CallResultForm(call: CallUi, message: String = "", marking: Boolean
         )
     }
     ImmersiveCallSurface {
-        Column(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 24.dp, vertical = 36.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Spacer(Modifier.height(28.dp))
-            Avatar(name = call.customer.name, size = 76)
-            Spacer(Modifier.height(14.dp))
-            Text(
-                call.customer.name,
-                modifier = Modifier.fillMaxWidth(),
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold,
-                color = CallText,
-                textAlign = TextAlign.Center,
-            )
-            Spacer(Modifier.height(8.dp))
-            Text(formatPhone(call.customer.phone), style = MaterialTheme.typography.bodyMedium, color = CallMutedText)
-            Spacer(Modifier.height(8.dp))
-            Text("通话已结束", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = CallHangupColor)
-            Spacer(Modifier.height(6.dp))
-            Text(formatDuration(call.durationSeconds), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = CallMutedText)
-            Spacer(Modifier.height(22.dp))
-            RecordingUploadProgress(call)
-            Spacer(Modifier.height(26.dp))
-            Text("意向度评分", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = CallText)
-            Spacer(Modifier.height(18.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                (1..5).forEach { star ->
-                    Text(
-                        text = "♥",
-                        modifier = Modifier.clickable { intent = star },
-                        style = MaterialTheme.typography.headlineSmall,
-                        color = if (star <= intent) CallHeartColor else CallInactiveHeart,
-                    )
-                }
-            }
-            Spacer(Modifier.height(36.dp))
-            Text("通话备注", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = CallText)
-            Spacer(Modifier.height(16.dp))
-            OutlinedTextField(
-                value = remark,
-                onValueChange = { remark = it },
-                modifier = Modifier.fillMaxWidth(),
-                placeholder = { Text("请输入客户跟进细节、需求点或下次联系计划...") },
-                minLines = 5,
-                shape = RoundedCornerShape(8.dp),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedTextColor = CallText,
-                    unfocusedTextColor = CallText,
-                    focusedBorderColor = CallInputBorder,
-                    unfocusedBorderColor = CallInputBorder,
-                    focusedContainerColor = CallInputColor,
-                    unfocusedContainerColor = CallInputColor,
-                    focusedPlaceholderColor = CallPlaceholderText,
-                    unfocusedPlaceholderColor = CallPlaceholderText,
-                ),
-            )
-            Spacer(Modifier.weight(1f))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(
-                    onClick = { pendingStatus = 4 },
-                    enabled = !marking,
-                    modifier = Modifier.weight(1f).height(UiButtonHeight),
-                    shape = RoundedCornerShape(UiButtonRadius),
-                    colors = ButtonDefaults.buttonColors(containerColor = CallButtonColor, contentColor = CallText),
-                ) {
-                    Icon(Icons.Filled.PersonOff, "标记为无效", modifier = Modifier.size(UiIconSize))
-                    Spacer(Modifier.width(8.dp))
-                    Text("标记为无效", fontWeight = FontWeight.Bold)
-                }
-                Button(
-                    onClick = { pendingStatus = 3 },
-                    enabled = !marking,
-                    modifier = Modifier.weight(1f).height(UiButtonHeight),
-                    shape = RoundedCornerShape(UiButtonRadius),
-                    colors = ButtonDefaults.buttonColors(containerColor = CallButtonColor, contentColor = CallText),
-                ) {
-                    Icon(Icons.Filled.Gavel, "标记为成交", modifier = Modifier.size(UiIconSize))
-                    Spacer(Modifier.width(8.dp))
-                    Text("标记为成交", fontWeight = FontWeight.Bold)
-                }
-            }
-            Spacer(Modifier.height(10.dp))
-            if (message.isNotBlank()) {
-                Text(message, color = if (message.startsWith("已")) CallMutedText else CallHangupColor, style = MaterialTheme.typography.bodySmall)
-                Spacer(Modifier.height(10.dp))
-            }
-            Button(
-                onClick = { onSubmit(intent, remark) },
-                enabled = !call.uploadingRecording && !marking,
-                modifier = Modifier.fillMaxWidth().height(UiButtonHeight),
-                shape = RoundedCornerShape(UiButtonRadius),
-                colors = ButtonDefaults.buttonColors(containerColor = CallActiveBlue, contentColor = CallActionContent),
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp)
+                    .verticalScroll(rememberScrollState()),
+                horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                Text(if (call.uploadingRecording) "录音上传中" else "保存并退出", fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(56.dp))
+                Avatar(name = call.customer.name, size = 76)
+                Spacer(Modifier.height(14.dp))
+                Text(
+                    call.customer.name,
+                    modifier = Modifier.fillMaxWidth(),
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = CallText,
+                    textAlign = TextAlign.Center,
+                )
+                Spacer(Modifier.height(8.dp))
+                Text(formatPhone(call.customer.phone), style = MaterialTheme.typography.bodyMedium, color = CallMutedText)
+                Spacer(Modifier.height(8.dp))
+                Text("通话已结束", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = CallHangupColor)
+                Spacer(Modifier.height(6.dp))
+                Text(formatDuration(call.durationSeconds), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = CallMutedText)
+                Spacer(Modifier.height(22.dp))
+                RecordingUploadProgress(call)
+                Spacer(Modifier.height(20.dp))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Bottom) {
+                    Text("客户意向度", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = CallText)
+                    Text("$intent ${intentLevelLabel(intent)}", style = MaterialTheme.typography.labelMedium, color = CallMutedText, maxLines = 1)
+                }
+                Spacer(Modifier.height(10.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    (1..5).forEach { star ->
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(36.dp)
+                                .clip(RoundedCornerShape(18.dp))
+                                .background(if (intent == star) CallActiveBlue else CallButtonColor)
+                                .clickable { intent = star },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                text = star.toString(),
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = if (intent == star) CallActionContent else CallText,
+                            )
+                        }
+                    }
+                }
+                Spacer(Modifier.height(18.dp))
+                Text(
+                    "通话备注",
+                    modifier = Modifier.fillMaxWidth(),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = CallText,
+                    textAlign = TextAlign.Start,
+                )
+                Spacer(Modifier.height(10.dp))
+                OutlinedTextField(
+                    value = remark,
+                    onValueChange = { remark = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = { Text("请输入客户跟进细节、需求点或下次联系计划...") },
+                    minLines = 5,
+                    shape = RoundedCornerShape(8.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = CallText,
+                        unfocusedTextColor = CallText,
+                        focusedBorderColor = CallInputBorder,
+                        unfocusedBorderColor = CallInputBorder,
+                        focusedContainerColor = CallInputColor,
+                        unfocusedContainerColor = CallInputColor,
+                        focusedPlaceholderColor = CallPlaceholderText,
+                        unfocusedPlaceholderColor = CallPlaceholderText,
+                    ),
+                )
+                Spacer(Modifier.height(10.dp))
+                if (message.isNotBlank()) {
+                    Text(message, color = if (message.startsWith("已")) CallMutedText else CallHangupColor, style = MaterialTheme.typography.bodySmall)
+                }
+                Spacer(Modifier.height(64.dp))
             }
-            Spacer(Modifier.height(4.dp))
-        }
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .align(Alignment.BottomCenter)
+                    .navigationBarsPadding()
+                    .imePadding()
+                    .background(CallBackground),
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 24.dp, top = 12.dp, end = 24.dp, bottom = 20.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Row(
+                        modifier = Modifier.weight(1f),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Button(
+                            onClick = { pendingStatus = 4 },
+                            enabled = !marking,
+                            modifier = Modifier.weight(1f).height(UiButtonHeight).defaultMinSize(minWidth = 0.dp),
+                            contentPadding = PaddingValues(0.dp),
+                            shape = RoundedCornerShape(UiButtonRadius),
+                            colors = ButtonDefaults.buttonColors(containerColor = CallButtonColor, contentColor = CallText),
+                        ) {
+                            Icon(Icons.Filled.PersonOff, "标记为无效", modifier = Modifier.size(UiIconSize))
+                        }
+                        Button(
+                            onClick = { pendingStatus = 3 },
+                            enabled = !marking,
+                            modifier = Modifier.weight(1f).height(UiButtonHeight).defaultMinSize(minWidth = 0.dp),
+                            contentPadding = PaddingValues(0.dp),
+                            shape = RoundedCornerShape(UiButtonRadius),
+                            colors = ButtonDefaults.buttonColors(containerColor = CallButtonColor, contentColor = CallText),
+                        ) {
+                            Icon(Icons.Filled.Gavel, "标记为成交", modifier = Modifier.size(UiIconSize))
+                        }
+                    }
+                    Button(
+                        onClick = { onSubmit(intent, remark) },
+                        enabled = !call.uploadingRecording && !marking,
+                        modifier = Modifier.weight(1f).height(UiButtonHeight).defaultMinSize(minWidth = 0.dp),
+                        contentPadding = PaddingValues(0.dp),
+                        shape = RoundedCornerShape(UiButtonRadius),
+                        colors = ButtonDefaults.buttonColors(containerColor = CallActiveBlue, contentColor = CallActionContent),
+                    ) {
+                        Text(
+                            if (call.uploadingRecording) "录音上传中" else "保存并退出",
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        }
+                    }
+                }
+            }
     }
 }
 
@@ -509,6 +590,122 @@ internal fun AppCard(modifier: Modifier = Modifier, content: @Composable () -> U
         colors = CardDefaults.cardColors(containerColor = CallSurfaceColor),
     ) {
         content()
+    }
+}
+
+@Composable
+internal fun AutoSearchChoiceRow(
+    label: String,
+    options: List<Pair<Int?, String>>,
+    selected: Int?,
+    onSelect: (Int?) -> Unit,
+    searchThreshold: Int = 8,
+    resetKey: Any? = Unit,
+) {
+    val searchable = options.size > searchThreshold
+    var query by rememberSaveable(label, resetKey) { mutableStateOf("") }
+    LaunchedEffect(searchable) {
+        if (!searchable && query.isNotBlank()) query = ""
+    }
+    val visibleOptions = remember(options, query, selected, searchable) {
+        val trimmed = query.trim()
+        if (!searchable || trimmed.isBlank()) {
+            options
+        } else {
+            val stickyOption = options.firstOrNull { it.first == null }
+            val selectedOption = selected?.let { current -> options.firstOrNull { it.first == current } }
+            buildList {
+                stickyOption?.let { add(it) }
+                if (selectedOption != null && selectedOption != stickyOption) {
+                    add(selectedOption)
+                }
+                options.asSequence()
+                    .filter { it.second.contains(trimmed, ignoreCase = true) }
+                    .filterNot { it == stickyOption || it == selectedOption }
+                    .forEach { add(it) }
+            }
+        }
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(label, color = CallMutedText, style = MaterialTheme.typography.labelMedium)
+        if (searchable) {
+            ChoiceSearchField(query, onValueChange = { query = it })
+        }
+        ChoiceChipRow(visibleOptions, selected, onSelect)
+    }
+}
+
+@Composable
+private fun ChoiceSearchField(value: String, onValueChange: (String) -> Unit) {
+    Row(
+        Modifier
+            .height(30.dp)
+            .clip(RoundedCornerShape(15.dp))
+            .background(CallButtonColor)
+            .padding(start = 10.dp, end = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            painterResource(android.R.drawable.ic_menu_search),
+            contentDescription = "搜索",
+            tint = CallMutedText,
+            modifier = Modifier.size(14.dp),
+        )
+        Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
+            if (value.isBlank()) {
+                Text("搜索", color = CallMutedText, style = MaterialTheme.typography.labelMedium, maxLines = 1)
+            }
+            BasicTextField(
+                value = value,
+                onValueChange = onValueChange,
+                singleLine = true,
+                textStyle = MaterialTheme.typography.labelMedium.copy(color = CallText),
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+        if (value.isNotBlank()) {
+            Box(
+                Modifier
+                    .size(24.dp)
+                    .clip(CircleShape)
+                    .clickable { onValueChange("") },
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    painterResource(android.R.drawable.ic_menu_close_clear_cancel),
+                    contentDescription = "清除搜索",
+                    tint = CallMutedText,
+                    modifier = Modifier.size(12.dp),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ChoiceChipRow(options: List<Pair<Int?, String>>, selected: Int?, onSelect: (Int?) -> Unit) {
+    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        options.forEach { (value, text) ->
+            ChoiceChip(text, selected == value) { onSelect(value) }
+        }
+    }
+}
+
+@Composable
+private fun ChoiceChip(label: String, selected: Boolean, onClick: () -> Unit) {
+    Button(
+        onClick = onClick,
+        modifier = Modifier.height(30.dp),
+        shape = RoundedCornerShape(15.dp),
+        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = if (selected) CallActiveBlue else CallButtonColor,
+            contentColor = if (selected) CallActionContent else CallText,
+        ),
+    ) {
+        Text(label, style = MaterialTheme.typography.labelMedium, maxLines = 1)
     }
 }
 

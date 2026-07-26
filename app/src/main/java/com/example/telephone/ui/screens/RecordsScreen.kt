@@ -3,7 +3,6 @@ package com.example.telephone.ui.screens
 import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,7 +18,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
@@ -105,6 +103,7 @@ import com.example.telephone.ui.UiButtonRadius
 import com.example.telephone.ui.UiCardPadding
 import com.example.telephone.ui.UiIconSize
 import com.example.telephone.ui.UiListPadding
+import com.example.telephone.ui.components.AutoSearchChoiceRow
 import com.example.telephone.ui.components.AppCard
 import com.example.telephone.ui.components.Avatar
 import com.example.telephone.ui.components.CallPanel
@@ -128,6 +127,7 @@ internal fun RecordsScreen(
     padding: PaddingValues,
     onAuthExpired: () -> Unit,
     onChromeHiddenChange: (Boolean) -> Unit,
+    refreshToken: Int,
     detailId: Int? = null,
     onOpenDetail: (Int) -> Unit = {},
     onCloseDetail: () -> Unit = {},
@@ -430,11 +430,13 @@ internal fun RecordsScreen(
         }
     }
 
-    LaunchedEffect(Unit) {
-        if (!isDetailRoute) loadRecords(null, append = false)
-    }
-    LaunchedEffect(detailId) {
-        detailId?.let { loadDetail(it) }
+    LaunchedEffect(refreshToken, detailId) {
+        if (callbackCall != null) return@LaunchedEffect
+        if (detailId != null) {
+            loadDetail(detailId)
+        } else {
+            loadRecords(null, append = false)
+        }
     }
     LaunchedEffect(playingId) {
         while (playingId != null) {
@@ -725,7 +727,7 @@ private fun CallRecordListItem(
     onOpen: () -> Unit,
 ) {
     val phone = remember(record.customerPhone) { formatPhone(record.customerPhone) }
-    val callTime = remember(record.lastCallAt) { formatCallTime(record.lastCallAt) }
+    val callTime = formatCallTime(record.lastCallAt)
     AppCard {
         Row(
             Modifier
@@ -1045,6 +1047,7 @@ private fun CallRecordFilters(
     onReset: () -> Unit,
 ) {
     var expanded by remember { mutableStateOf(false) }
+    var filterResetToken by remember { mutableIntStateOf(0) }
     var draftKeyword by remember(keyword) { mutableStateOf(keyword) }
     var draftStatus by remember(selectedStatus) { mutableStateOf(selectedStatus) }
     var draftIntent by remember(selectedIntent) { mutableStateOf(selectedIntent) }
@@ -1068,10 +1071,11 @@ private fun CallRecordFilters(
                 }
             }
             if (expanded) {
-                FilterRow(
+                AutoSearchChoiceRow(
                     label = "快捷时间",
-                    options = listOf(null to "不限", 1 to "今天", 7 to "近7天", 30 to "近30天"),
+                    options = listOf<Pair<Int?, String>>(null to "不限", 1 to "今天", 7 to "近7天", 30 to "近30天"),
                     selected = quickDays(draftStart, draftEnd),
+                    resetKey = filterResetToken,
                     onSelect = { days ->
                         if (days == null) {
                             draftStart = null
@@ -1090,16 +1094,18 @@ private fun CallRecordFilters(
                         pickingDate = DateField.End
                     }
                 }
-                FilterRow(
+                AutoSearchChoiceRow(
                     label = "客户状态",
-                    options = listOf(null to "全部", 1 to "待分配", 2 to "跟进中", 3 to "已成交", 4 to "无效"),
+                    options = listOf<Pair<Int?, String>>(null to "全部", 1 to "待分配", 2 to "跟进中", 3 to "已成交", 4 to "无效"),
                     selected = draftStatus,
+                    resetKey = filterResetToken,
                     onSelect = { draftStatus = it },
                 )
-                FilterRow(
+                AutoSearchChoiceRow(
                     label = "意向度",
-                    options = listOf(null to "全部", 0 to "未知", 1 to "基本无意向", 2 to "较低", 3 to "中", 4 to "高", 5 to "强烈"),
+                    options = listOf<Pair<Int?, String>>(null to "全部", 0 to "未知", 1 to "基本无意向", 2 to "较低意向", 3 to "中等意向", 4 to "较高意向", 5 to "强烈意向"),
                     selected = draftIntent,
+                    resetKey = filterResetToken,
                     onSelect = { draftIntent = it },
                 )
                 if (error.isNotBlank()) {
@@ -1117,6 +1123,7 @@ private fun CallRecordFilters(
                         draftIntent = null
                         draftStart = null
                         draftEnd = null
+                        filterResetToken++
                         expanded = false
                         onReset()
                     }, modifier = Modifier.weight(1f).height(36.dp), shape = RoundedCornerShape(18.dp), contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp), colors = ButtonDefaults.buttonColors(containerColor = CallButtonColor, contentColor = CallText)) {
@@ -1222,34 +1229,6 @@ private fun DateButton(label: String, date: LocalDate?, modifier: Modifier = Mod
     }
 }
 
-@Composable
-private fun FilterRow(label: String, options: List<Pair<Int?, String>>, selected: Int?, onSelect: (Int?) -> Unit) {
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text(label, color = CallMutedText, style = MaterialTheme.typography.labelMedium)
-        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            options.forEach { (value, text) ->
-                FilterButton(text, selected == value) { onSelect(value) }
-            }
-        }
-    }
-}
-
-@Composable
-private fun FilterButton(label: String, selected: Boolean, onClick: () -> Unit) {
-    Button(
-        onClick = onClick,
-        modifier = Modifier.height(30.dp),
-        shape = RoundedCornerShape(15.dp),
-        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
-        colors = ButtonDefaults.buttonColors(
-            containerColor = if (selected) CallActiveBlue else CallButtonColor,
-            contentColor = if (selected) CallActionContent else CallText,
-        ),
-    ) {
-        Text(label, style = MaterialTheme.typography.labelMedium, maxLines = 1)
-    }
-}
-
 private fun customerStatusLabel(status: Int) = when (status) {
     1 -> "待分配"
     2 -> "跟进中"
@@ -1266,15 +1245,6 @@ private fun quickDays(startDate: LocalDate?, endDate: LocalDate?): Int? {
         LocalDate.now().minusDays(29) -> 30
         else -> null
     }
-}
-
-private fun callIntentLabel(level: Int) = when (level) {
-    1 -> "基本无意向"
-    2 -> "较低"
-    3 -> "中"
-    4 -> "高"
-    5 -> "强烈"
-    else -> "未知"
 }
 
 private fun recordingUri(source: String): Uri = when {

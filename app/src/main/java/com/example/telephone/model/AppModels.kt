@@ -8,6 +8,12 @@ internal data class Customer(val id: Int, val name: String, val phone: String, v
 
 internal data class AssignedCustomerPage(val customer: Customer?, val page: Int, val total: Int)
 
+internal data class SchoolOption(val id: Int, val schoolName: String)
+
+internal data class GradeOption(val gradeCode: Int, val gradeName: String, val typeCode: Int)
+
+internal data class DialerOptions(val schools: List<SchoolOption>, val grades: List<GradeOption>)
+
 internal data class AppTeam(val id: Int, val teamName: String, val role: Int)
 
 internal data class AppTeamMember(val id: Int, val realName: String, val username: String, val role: Int)
@@ -21,14 +27,17 @@ internal data class Overview(
 )
 
 internal data class StatisticsStats(
+    val averageDurationSeconds: Double,
     val communicatedCustomers: Int,
     val communicationCount: Int,
     val conversionRate: Double,
     val dealCustomers: Int,
     val durationSeconds: Int,
+    val effectiveCommunicationCount: Int,
 )
 
 internal data class StatisticsRanks(
+    val averageDurationSeconds: Int,
     val communicatedCustomers: Int,
     val communicationCount: Int,
     val conversionRate: Int,

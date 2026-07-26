@@ -6,6 +6,7 @@ import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import androidx.activity.compose.BackHandler
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -13,6 +14,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -26,22 +28,21 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.zIndex
 import androidx.core.content.ContextCompat
-import androidx.navigation.NavGraph.Companion.findStartDestination
-import androidx.navigation.NavType
-import androidx.navigation.compose.NavHost
-import androidx.navigation.compose.composable
-import androidx.navigation.compose.currentBackStackEntryAsState
-import androidx.navigation.compose.rememberNavController
-import androidx.navigation.navArgument
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.telephone.model.CallState
 import com.example.telephone.model.CallUi
@@ -69,8 +70,6 @@ import com.example.telephone.ui.theme.TelephoneTheme
 import com.example.telephone.update.AppUpdateDialog
 import com.example.telephone.update.checkAppUpdate
 import com.example.telephone.update.startAppUpdateDownload
-
-private const val RecordDetailRoute = "recordDetail/{recordId}"
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -163,22 +162,35 @@ private fun IncomingCallGate(): Boolean {
 
     LaunchedEffect(Unit) {
         while (true) {
-            val phone = TelephoneInCallService.currentRingingPhone()
+            val phone = TelephoneInCallService.currentCallPhone()
             val state = TelephoneInCallService.currentCallState()
             val current = call
+            val callState = when (state) {
+                android.telecom.Call.STATE_RINGING -> CallState.Incoming
+                android.telecom.Call.STATE_DIALING -> CallState.Dialing
+                android.telecom.Call.STATE_ACTIVE -> CallState.Connected
+                else -> null
+            }
+            val targetPhone = phone ?: "未知号码"
             when {
-                phone != null && current?.state != CallState.Connected -> {
+                callState != null -> {
                     message = ""
-                    call = CallUi(
-                        customer = Customer(0, "未知来电", phone, "", ""),
-                        state = CallState.Incoming,
-                        startedAt = System.currentTimeMillis(),
-                    )
+                    val startedAt = if (callState == CallState.Connected && current?.state != CallState.Connected) {
+                        System.currentTimeMillis()
+                    } else {
+                        current?.startedAt ?: System.currentTimeMillis()
+                    }
+                    call = if (current?.customer?.phone == targetPhone) {
+                        current.copy(state = callState, startedAt = startedAt)
+                    } else {
+                        CallUi(
+                            customer = Customer(0, if (callState == CallState.Incoming) "未知来电" else "未知通话", targetPhone, "", ""),
+                            state = callState,
+                            startedAt = System.currentTimeMillis(),
+                        )
+                    }
                 }
-                current?.state == CallState.Incoming && phone == null && state != android.telecom.Call.STATE_ACTIVE -> {
-                    call = null
-                }
-                current?.state == CallState.Connected && state == null && System.currentTimeMillis() - current.startedAt > 1000 -> {
+                current != null && state == null && System.currentTimeMillis() - current.startedAt > 1000 -> {
                     call = null
                 }
             }
@@ -262,14 +274,21 @@ private fun TelephoneApp(activity: ComponentActivity, prefs: SharedPreferences, 
 @Composable
 private fun HomeScreen(session: Session, themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, onLogout: () -> Unit) {
     val context = LocalContext.current
-    val navController = rememberNavController()
-    val navBackStackEntry by navController.currentBackStackEntryAsState()
-    val currentRoute = navBackStackEntry?.destination?.route
-    val routeHidesChrome = currentRoute == RecordDetailRoute
-    val tab = MainTab.fromRoute(currentRoute)
+    var selectedTab by rememberSaveable { mutableStateOf(MainTab.Dialer) }
+    var detailRecordId by rememberSaveable { mutableStateOf<Int?>(null) }
+    var dialerRefreshToken by rememberSaveable { mutableIntStateOf(0) }
+    var recordsRefreshToken by rememberSaveable { mutableIntStateOf(0) }
+    val routeHidesChrome = detailRecordId != null
+    val tab = selectedTab
     val statsViewModel: StatsViewModel = viewModel()
     val currentVersionCode = remember { AppUpdateInstaller.currentVersionCode(context) }
-    var hideChrome by remember { mutableStateOf(false) }
+    var dialerHidesChrome by remember { mutableStateOf(false) }
+    var recordsHidesChrome by remember { mutableStateOf(false) }
+    val hideChrome = when (selectedTab) {
+        MainTab.Dialer -> dialerHidesChrome
+        MainTab.Records -> recordsHidesChrome
+        else -> false
+    }
     var update by remember { mutableStateOf<AppUpdateInfo?>(null) }
     var updateProgress by remember { mutableStateOf(0f) }
     var updateDownloading by remember { mutableStateOf(false) }
@@ -291,6 +310,9 @@ private fun HomeScreen(session: Session, themeMode: ThemeMode, onThemeModeChange
             kotlinx.coroutines.delay(60_000)
         }
     }
+    BackHandler(detailRecordId != null) {
+        detailRecordId = null
+    }
 
     Scaffold(
         containerColor = CallBackground,
@@ -311,56 +333,50 @@ private fun HomeScreen(session: Session, themeMode: ThemeMode, onThemeModeChange
             if (!hideChrome && !routeHidesChrome) {
                 MainBottomBar(
                     selected = tab,
-                    onSelected = { selected ->
-                        navController.navigate(selected.route) {
-                            popUpTo(navController.graph.findStartDestination().id) {
-                                saveState = true
-                            }
-                            launchSingleTop = true
-                            restoreState = true
-                        }
-                    },
+                    onSelected = { selectedTab = it },
                 )
             }
         },
     ) { padding ->
-        NavHost(
-            navController = navController,
-            startDestination = MainTab.Dialer.route,
-            modifier = Modifier.fillMaxSize(),
-        ) {
-            composable(MainTab.Dialer.route) {
-                DialerScreen(session, padding, onAuthExpired = onLogout, onChromeHiddenChange = { hideChrome = it })
+        Box(Modifier.fillMaxSize()) {
+            KeepAliveTab(MainTab.Dialer, selectedTab, onShow = { dialerRefreshToken++ }) {
+                DialerScreen(
+                    session,
+                    padding,
+                    onAuthExpired = onLogout,
+                    onChromeHiddenChange = { dialerHidesChrome = it },
+                    refreshToken = dialerRefreshToken,
+                )
             }
-            composable(MainTab.Stats.route) {
+            KeepAliveTab(MainTab.Stats, selectedTab) {
                 StatsScreen(session, padding, onAuthExpired = onLogout, viewModel = statsViewModel)
             }
-            composable(MainTab.Records.route) {
+            KeepAliveTab(MainTab.Records, selectedTab, onShow = { recordsRefreshToken++ }) {
                 RecordsScreen(
                     session = session,
                     padding = padding,
                     onAuthExpired = onLogout,
-                    onChromeHiddenChange = { hideChrome = it },
-                    onOpenDetail = { recordId -> navController.navigate("recordDetail/$recordId") },
+                    onChromeHiddenChange = { recordsHidesChrome = it },
+                    refreshToken = recordsRefreshToken,
+                    onOpenDetail = { recordId -> detailRecordId = recordId },
                 )
             }
-            composable(
-                route = RecordDetailRoute,
-                arguments = listOf(navArgument("recordId") { type = NavType.IntType }),
-            ) { entry ->
-                val recordId = entry.arguments?.getInt("recordId") ?: return@composable
-                RecordsScreen(
-                    session = session,
-                    padding = padding,
-                    onAuthExpired = onLogout,
-                    onChromeHiddenChange = { hideChrome = it },
-                    detailId = recordId,
-                    onCloseDetail = { navController.popBackStack() },
-                )
-            }
-            composable(MainTab.Profile.route) {
+            KeepAliveTab(MainTab.Profile, selectedTab) {
                 ProfileScreen(session, themeMode, onThemeModeChange, onLogout, padding)
             }
+            detailRecordId?.let { recordId ->
+                Box(Modifier.fillMaxSize().zIndex(2f)) {
+                    RecordsScreen(
+                    session = session,
+                    padding = padding,
+                    onAuthExpired = onLogout,
+                    onChromeHiddenChange = {},
+                    refreshToken = recordsRefreshToken,
+                    detailId = recordId,
+                    onCloseDetail = { detailRecordId = null },
+                )
+            }
+        }
         }
     }
 
@@ -382,5 +398,23 @@ private fun HomeScreen(session: Session, themeMode: ThemeMode, onThemeModeChange
             },
             onDismiss = { update = null },
         )
+    }
+}
+
+@Composable
+private fun KeepAliveTab(tab: MainTab, selectedTab: MainTab, onShow: () -> Unit = {}, content: @Composable () -> Unit) {
+    val visible = tab == selectedTab
+    val latestOnShow = rememberUpdatedState(onShow)
+    LaunchedEffect(visible) {
+        if (visible) latestOnShow.value()
+    }
+    Box(
+        Modifier
+            .fillMaxSize()
+            .graphicsLayer { alpha = if (visible) 1f else 0f }
+            .zIndex(if (visible) 1f else 0f)
+            .then(if (visible) Modifier else Modifier.clearAndSetSemantics {}),
+    ) {
+        content()
     }
 }

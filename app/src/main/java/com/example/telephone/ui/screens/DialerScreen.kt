@@ -1,5 +1,9 @@
 package com.example.telephone.ui.screens
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -16,10 +20,14 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -50,7 +58,9 @@ import com.example.telephone.model.CallRecord
 import com.example.telephone.model.CallState
 import com.example.telephone.model.CallUi
 import com.example.telephone.model.Customer
+import com.example.telephone.model.GradeOption
 import com.example.telephone.model.Session
+import com.example.telephone.model.SchoolOption
 import com.example.telephone.placeCall
 import com.example.telephone.runOnMain
 import com.example.telephone.setMuted
@@ -58,6 +68,7 @@ import com.example.telephone.setSpeaker
 import com.example.telephone.ui.CallActiveBlue
 import com.example.telephone.ui.CallActionContent
 import com.example.telephone.ui.CallBackground
+import com.example.telephone.ui.CallButtonColor
 import com.example.telephone.ui.CallMutedText
 import com.example.telephone.ui.CallSurfaceColor
 import com.example.telephone.ui.CallText
@@ -65,6 +76,7 @@ import com.example.telephone.ui.UiButtonRadius
 import com.example.telephone.ui.UiCardPadding
 import com.example.telephone.ui.UiListPadding
 import com.example.telephone.ui.components.AppCard
+import com.example.telephone.ui.components.AutoSearchChoiceRow
 import com.example.telephone.ui.components.CallPanel
 import com.example.telephone.ui.components.CallResultForm
 import com.example.telephone.ui.components.CustomerCard
@@ -72,7 +84,13 @@ import java.io.File
 import kotlin.concurrent.thread
 
 @Composable
-internal fun DialerScreen(session: Session, padding: PaddingValues, onAuthExpired: () -> Unit, onChromeHiddenChange: (Boolean) -> Unit) {
+internal fun DialerScreen(
+    session: Session,
+    padding: PaddingValues,
+    onAuthExpired: () -> Unit,
+    onChromeHiddenChange: (Boolean) -> Unit,
+    refreshToken: Int,
+) {
     val context = LocalContext.current
     var customer by remember { mutableStateOf<Customer?>(null) }
     var customerPage by remember { mutableIntStateOf(1) }
@@ -87,6 +105,17 @@ internal fun DialerScreen(session: Session, padding: PaddingValues, onAuthExpire
     var callRecords by remember { mutableStateOf<List<CallRecord>>(emptyList()) }
     var callRecordsLoading by remember { mutableStateOf(false) }
     var callRecordsMessage by remember { mutableStateOf("") }
+    var schoolOptions by remember { mutableStateOf<List<SchoolOption>>(emptyList()) }
+    var gradeOptions by remember { mutableStateOf<List<GradeOption>>(emptyList()) }
+    var selectedSchoolId by remember { mutableStateOf<Int?>(null) }
+    var selectedGradeCode by remember { mutableStateOf<Int?>(null) }
+    var filterResetToken by remember { mutableIntStateOf(0) }
+
+    fun copyCustomerPhone(target: Customer) {
+        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        clipboard.setPrimaryClip(ClipData.newPlainText("客户电话", target.phone))
+        Toast.makeText(context, "电话号码已复制", Toast.LENGTH_SHORT).show()
+    }
 
     fun loadCustomerCallRecords(customerId: Int) {
         callRecords = emptyList()
@@ -133,7 +162,7 @@ internal fun DialerScreen(session: Session, padding: PaddingValues, onAuthExpire
         loading = true
         message = ""
         thread {
-            runCatching { session.api.nextCustomer(session.token, page.coerceAtLeast(1)) }
+            runCatching { session.api.nextCustomer(session.token, page.coerceAtLeast(1), selectedSchoolId, selectedGradeCode) }
                 .onSuccess { runOnMain { showCustomerPage(it) } }
                 .onFailure { runOnMain { if (it is AuthExpiredException) onAuthExpired() else message = it.message ?: "获取客户失败" } }
             runOnMain { loading = false }
@@ -160,9 +189,9 @@ internal fun DialerScreen(session: Session, padding: PaddingValues, onAuthExpire
         thread {
             runCatching {
                 session.api.updateCustomerStatus(session.token, target.id, status)
-                val next = session.api.nextCustomer(session.token, page)
+                val next = session.api.nextCustomer(session.token, page, selectedSchoolId, selectedGradeCode)
                 if (next.customer == null && next.total > 0 && page > next.total) {
-                    session.api.nextCustomer(session.token, next.total)
+                    session.api.nextCustomer(session.token, next.total, selectedSchoolId, selectedGradeCode)
                 } else {
                     next
                 }
@@ -248,7 +277,25 @@ internal fun DialerScreen(session: Session, padding: PaddingValues, onAuthExpire
         if (shouldUpload) uploadRecording(recordId!!, current.customer.id, recording!!)
     }
 
-    LaunchedEffect(Unit) { loadCustomer(1) }
+    fun loadDialerOptions() {
+        thread {
+            runCatching { session.api.dialerOptions(session.token) }
+                .onSuccess { options ->
+                    runOnMain {
+                        schoolOptions = options.schools
+                        gradeOptions = options.grades
+                    }
+                }
+                .onFailure { runOnMain { if (it is AuthExpiredException) onAuthExpired() else message = it.message ?: "获取筛选项失败" } }
+        }
+    }
+
+    LaunchedEffect(refreshToken) {
+        if (call == null) {
+            loadCustomer(customerPage.coerceAtLeast(1))
+        }
+    }
+    LaunchedEffect(Unit) { loadDialerOptions() }
     LaunchedEffect(Unit) {
         while (true) {
             val incomingPhone = TelephoneInCallService.currentRingingPhone()
@@ -329,6 +376,29 @@ internal fun DialerScreen(session: Session, padding: PaddingValues, onAuthExpire
         if (call == null) {
             LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(UiListPadding), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 item {
+                    DialerFilters(
+                        schools = schoolOptions,
+                        grades = gradeOptions,
+                        selectedSchoolId = selectedSchoolId,
+                        selectedGradeCode = selectedGradeCode,
+                        resetKey = filterResetToken,
+                        onSchoolSelected = {
+                            selectedSchoolId = it
+                            loadCustomer(1)
+                        },
+                        onGradeSelected = {
+                            selectedGradeCode = it
+                            loadCustomer(1)
+                        },
+                        onReset = {
+                            filterResetToken++
+                            selectedSchoolId = null
+                            selectedGradeCode = null
+                            loadCustomer(1)
+                        },
+                    )
+                }
+                item {
                     CustomerCard(
                         customer = customer,
                         loading = loading,
@@ -340,6 +410,7 @@ internal fun DialerScreen(session: Session, padding: PaddingValues, onAuthExpire
                         onReset = { pendingConfirm = "reset" },
                         onMarkInvalid = { pendingConfirm = "invalid" },
                         onMarkDeal = { pendingConfirm = "deal" },
+                        onCopyPhone = { copyCustomerPhone(it) },
                     ) {
                         val target = it
                         call = CallUi(customer = target, state = CallState.Dialing, startedAt = System.currentTimeMillis())
@@ -404,7 +475,7 @@ internal fun DialerScreen(session: Session, padding: PaddingValues, onAuthExpire
                             recordingUrl = ended.recordingUrl,
                         )
                         PendingCallSyncCache.remove(context, recordId)
-                        if (customerTotal > 0 && nextPage <= customerTotal) session.api.nextCustomer(session.token, nextPage) else null
+                        if (customerTotal > 0 && nextPage <= customerTotal) session.api.nextCustomer(session.token, nextPage, selectedSchoolId, selectedGradeCode) else null
                     }.onSuccess { next ->
                         runOnMain {
                             if (next == null) {
@@ -453,6 +524,77 @@ internal fun DialerScreen(session: Session, padding: PaddingValues, onAuthExpire
                 },
                 message = callMessage,
             )
+        }
+    }
+}
+
+@Composable
+private fun DialerFilters(
+    schools: List<SchoolOption>,
+    grades: List<GradeOption>,
+    selectedSchoolId: Int?,
+    selectedGradeCode: Int?,
+    resetKey: Any?,
+    onSchoolSelected: (Int?) -> Unit,
+    onGradeSelected: (Int?) -> Unit,
+    onReset: () -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val schoolName = schools.firstOrNull { it.id == selectedSchoolId }?.schoolName ?: "全部学校"
+    val gradeName = grades.firstOrNull { it.gradeCode == selectedGradeCode }?.gradeName ?: "全部年级"
+    val active = selectedSchoolId != null || selectedGradeCode != null
+    val summary = if (active) "$schoolName · $gradeName" else "全部学校 · 全部年级"
+    AppCard {
+        Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text("客户筛选", color = CallText, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                    Text(summary, color = CallMutedText, style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                Button(
+                    onClick = { expanded = !expanded },
+                    modifier = Modifier.height(32.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (active) CallActiveBlue else CallButtonColor,
+                        contentColor = if (active) CallActionContent else CallText,
+                    ),
+                ) {
+                    Icon(if (expanded) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown, if (expanded) "收起" else "筛选", modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(3.dp))
+                    Text(if (expanded) "收起" else "筛选", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                }
+            }
+            if (expanded) {
+                AutoSearchChoiceRow(
+                    "学校",
+                    listOf<Pair<Int?, String>>(null to "全部") + schools.map { it.id as Int? to it.schoolName },
+                    selectedSchoolId,
+                    onSchoolSelected,
+                    resetKey = resetKey,
+                )
+                AutoSearchChoiceRow(
+                    "年级",
+                    listOf<Pair<Int?, String>>(null to "全部") + grades.map { it.gradeCode as Int? to it.gradeName },
+                    selectedGradeCode,
+                    onGradeSelected,
+                    resetKey = resetKey,
+                )
+                if (active) {
+                    Button(
+                        onClick = {
+                            onReset()
+                        },
+                        modifier = Modifier.fillMaxWidth().height(34.dp),
+                        shape = RoundedCornerShape(17.dp),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = CallButtonColor, contentColor = CallText),
+                    ) {
+                        Text("清空筛选", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
         }
     }
 }
