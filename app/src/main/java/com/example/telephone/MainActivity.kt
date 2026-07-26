@@ -138,7 +138,11 @@ private fun RuntimePermissionsRequest() {
     val context = LocalContext.current
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {}
     LaunchedEffect(Unit) {
-        val permissions = listOf(Manifest.permission.CALL_PHONE, Manifest.permission.RECORD_AUDIO)
+        val permissions = buildList {
+            add(Manifest.permission.CALL_PHONE)
+            add(Manifest.permission.RECORD_AUDIO)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) add(Manifest.permission.POST_NOTIFICATIONS)
+        }
             .filter { ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED }
         if (permissions.isNotEmpty()) launcher.launch(permissions.toTypedArray())
     }

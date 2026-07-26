@@ -23,6 +23,7 @@ internal object IncomingCallNotifier {
                     Intent.FLAG_ACTIVITY_REORDER_TO_FRONT,
             )
             .putExtra("incoming_call", true)
+        runCatching { context.startActivity(intent) }
         val pendingIntent = PendingIntent.getActivity(
             context,
             0,
