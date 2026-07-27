@@ -4,6 +4,6 @@
     <item
         android:width="132dp"
         android:height="132dp"
-        android:drawable="@drawable/ic_launcher_foreground"
+        android:drawable="@drawable/hukeyun_logo"
         android:gravity="center" />
 </layer-list>

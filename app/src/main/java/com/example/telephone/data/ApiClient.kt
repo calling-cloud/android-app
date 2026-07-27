@@ -11,8 +11,11 @@ import com.example.telephone.model.CallRecordQuery
 import com.example.telephone.model.CallSummary
 import com.example.telephone.model.CallSummaryPage
 import com.example.telephone.model.Customer
+import com.example.telephone.model.DialerOptions
+import com.example.telephone.model.GradeOption
 import com.example.telephone.model.Overview
 import com.example.telephone.model.Session
+import com.example.telephone.model.SchoolOption
 import com.example.telephone.model.StatisticsRank
 import com.example.telephone.model.StatisticsSummary
 import org.json.JSONArray
@@ -28,6 +31,7 @@ import java.security.spec.X509EncodedKeySpec
 import javax.crypto.Cipher
 import javax.crypto.spec.OAEPParameterSpec
 import javax.crypto.spec.PSource
+import kotlin.math.roundToInt
 
 internal class ApiClient(val baseUrl: String) {
     private var publicKeyPem: String? = null
@@ -38,13 +42,27 @@ internal class ApiClient(val baseUrl: String) {
         return Session(this, data.getString("accessToken"), user.getString("username"), user.optString("realName", user.getString("username")))
     }
 
-    fun nextCustomer(token: String, page: Int): AssignedCustomerPage {
-        val data = request("GET", "/api/app/customers?pageSize=1&page=$page", token).getJSONObject("data")
+    fun nextCustomer(token: String, page: Int, schoolId: Int? = null, gradeCode: Int? = null): AssignedCustomerPage {
+        val params = mutableListOf("pageSize" to "1", "page" to page.toString())
+        schoolId?.let { params += "schoolId" to it.toString() }
+        gradeCode?.let { params += "gradeCode" to it.toString() }
+        val data = request("GET", "/api/app/customers?${params.queryString()}", token).getJSONObject("data")
         val items = data.optJSONArray("items") ?: JSONArray()
         return AssignedCustomerPage(
             customer = items.optJSONObject(0)?.toCustomer(),
             page = data.optInt("page", page),
             total = data.optInt("total"),
+        )
+    }
+
+    fun dialerOptions(token: String): DialerOptions {
+        val data = request("GET", "/api/app/options?modules=dicts,schools", token).getJSONObject("data")
+        val dicts = data.optJSONObject("dicts") ?: JSONObject()
+        val schools = data.optJSONArray("schools") ?: JSONArray()
+        val grades = dicts.optJSONArray("grades") ?: JSONArray()
+        return DialerOptions(
+            schools = (0 until schools.length()).map { schools.getJSONObject(it).toSchoolOption() },
+            grades = (0 until grades.length()).map { grades.getJSONObject(it).toGradeOption() },
         )
     }
 
@@ -213,6 +231,8 @@ internal class ApiClient(val baseUrl: String) {
 
 private fun String.urlEncoded() = URLEncoder.encode(this, Charsets.UTF_8.name())
 
+private fun List<Pair<String, String>>.queryString() = joinToString("&") { "${it.first}=${it.second.urlEncoded()}" }
+
 private fun statisticsQuery(teamId: Int, employeeId: Int?, startDate: String?, endDate: String?): String {
     val params = mutableListOf("teamId" to teamId.toString())
     employeeId?.let { params += "employeeId" to it.toString() }
@@ -234,15 +254,40 @@ private fun JSONObject.toAppTeamMember() = AppTeamMember(
     role = optInt("role"),
 )
 
-private fun JSONObject.toStatisticsStats() = com.example.telephone.model.StatisticsStats(
-    communicatedCustomers = optInt("communicatedCustomers"),
-    communicationCount = optInt("communicationCount"),
-    conversionRate = optDouble("conversionRate"),
-    dealCustomers = optInt("dealCustomers"),
-    durationSeconds = optInt("durationSeconds"),
+private fun JSONObject.toSchoolOption() = SchoolOption(
+    id = optInt("id"),
+    schoolName = optString("schoolName"),
 )
 
+private fun JSONObject.toGradeOption() = GradeOption(
+    gradeCode = optInt("gradeCode"),
+    gradeName = optString("gradeName"),
+    typeCode = optInt("typeCode"),
+)
+
+private fun JSONObject.toStatisticsStats(): com.example.telephone.model.StatisticsStats {
+    val rawAverageDurationSeconds = optDouble("averageDurationSeconds", 0.0)
+    val averageDurationSeconds = if (rawAverageDurationSeconds.isFinite()) rawAverageDurationSeconds else 0.0
+    val durationSeconds = optInt("durationSeconds")
+    val apiEffectiveCommunicationCount = optInt("effectiveCommunicationCount")
+    val effectiveCommunicationCount = if (apiEffectiveCommunicationCount > 0 || durationSeconds <= 0 || averageDurationSeconds <= 0) {
+        apiEffectiveCommunicationCount
+    } else {
+        (durationSeconds / averageDurationSeconds).roundToInt()
+    }
+    return com.example.telephone.model.StatisticsStats(
+        averageDurationSeconds = averageDurationSeconds,
+        communicatedCustomers = optInt("communicatedCustomers"),
+        communicationCount = optInt("communicationCount"),
+        conversionRate = optDouble("conversionRate"),
+        dealCustomers = optInt("dealCustomers"),
+        durationSeconds = durationSeconds,
+        effectiveCommunicationCount = effectiveCommunicationCount,
+    )
+}
+
 private fun JSONObject.toStatisticsRanks() = com.example.telephone.model.StatisticsRanks(
+    averageDurationSeconds = optInt("averageDurationSeconds"),
     communicatedCustomers = optInt("communicatedCustomers"),
     communicationCount = optInt("communicationCount"),
     conversionRate = optInt("conversionRate"),

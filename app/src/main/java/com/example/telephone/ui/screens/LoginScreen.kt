@@ -26,6 +26,11 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuAnchorType
+import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -44,6 +49,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -72,6 +78,13 @@ import com.example.telephone.ui.CallBackground
 import com.example.telephone.ui.theme.TelephoneTheme
 import kotlin.concurrent.thread
 
+private val DevServerUrls = listOf(
+    "http://47.109.29.124",
+    "http://192.168.1.102:3000",
+    "http://192.168.101.105:3000",
+)
+
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun LoginScreen(
     initialServerUrl: String = BuildConfig.DEFAULT_SERVER_URL,
@@ -85,6 +98,7 @@ internal fun LoginScreen(
     var username by remember { mutableStateOf(rememberedUsername) }
     var password by remember { mutableStateOf("") }
     var rememberUsername by remember { mutableStateOf(rememberedUsername.isNotBlank()) }
+    var serverUrlMenuExpanded by remember { mutableStateOf(false) }
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf("") }
 
@@ -117,12 +131,51 @@ internal fun LoginScreen(
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     if (serverUrlEditable) {
-                        LoginTextField(
-                            value = serverUrl,
-                            onValueChange = { serverUrl = it.trimEnd('/') },
-                            placeholder = BuildConfig.DEFAULT_SERVER_URL,
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+                        ExposedDropdownMenuBox(
+                            expanded = serverUrlMenuExpanded,
+                            onExpandedChange = { serverUrlMenuExpanded = !serverUrlMenuExpanded },
                         )
+                        {
+                            OutlinedTextField(
+                                value = serverUrl,
+                                onValueChange = { serverUrl = it.trimEnd('/') },
+                                modifier = Modifier
+                                    .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryEditable)
+                                    .fillMaxWidth()
+                                    .height(54.dp),
+                                placeholder = { Text(BuildConfig.DEFAULT_SERVER_URL) },
+                                singleLine = true,
+                                textStyle = MaterialTheme.typography.bodyLarge,
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+                                shape = RoundedCornerShape(14.dp),
+                                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = serverUrlMenuExpanded) },
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedTextColor = CallText,
+                                    unfocusedTextColor = CallText,
+                                    focusedBorderColor = CallInputBorder,
+                                    unfocusedBorderColor = CallInputBorder,
+                                    cursorColor = CallText,
+                                    focusedContainerColor = CallInputColor,
+                                    unfocusedContainerColor = CallInputColor,
+                                    focusedPlaceholderColor = CallPlaceholderText,
+                                    unfocusedPlaceholderColor = CallPlaceholderText,
+                                ),
+                            )
+                            ExposedDropdownMenu(
+                                expanded = serverUrlMenuExpanded,
+                                onDismissRequest = { serverUrlMenuExpanded = false },
+                            ) {
+                                DevServerUrls.forEach { url ->
+                                    DropdownMenuItem(
+                                        text = { Text(url) },
+                                        onClick = {
+                                            serverUrl = url
+                                            serverUrlMenuExpanded = false
+                                        },
+                                    )
+                                }
+                            }
+                        }
                     }
                     LoginTextField(username, { username = it }, "请输入账号")
                     LoginTextField(
@@ -225,14 +278,14 @@ private fun LoginHeader() {
         contentAlignment = Alignment.Center,
     ) {
         Image(
-            painter = painterResource(R.drawable.ic_launcher_foreground),
-            contentDescription = "销售通话",
+            painter = painterResource(R.drawable.hukeyun_logo),
+            contentDescription = stringResource(R.string.app_name),
             modifier = Modifier.size(60.dp),
         )
     }
     Spacer(Modifier.height(20.dp))
     Text(
-        "TELEPHONE",
+        stringResource(R.string.app_name),
         modifier = Modifier.fillMaxWidth(),
         style = MaterialTheme.typography.headlineLarge,
         fontWeight = FontWeight.Black,

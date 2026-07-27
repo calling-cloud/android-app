@@ -1,6 +1,5 @@
 package com.example.telephone
 
-import android.content.Intent
 import android.telecom.Call
 import android.telecom.CallAudioState
 import android.telecom.InCallService
@@ -14,12 +13,12 @@ class TelephoneInCallService : InCallService() {
         trackCall(this, call)
         val callback = object : Call.Callback() {
             override fun onStateChanged(call: Call, state: Int) {
-                handleCallState(state)
+                handleCallState(call, state)
             }
         }
         callbacks[call] = callback
         call.registerCallback(callback)
-        handleCallState(call.state)
+        handleCallState(call, call.state)
     }
 
     override fun onCallRemoved(call: Call) {
@@ -30,31 +29,26 @@ class TelephoneInCallService : InCallService() {
         super.onCallRemoved(call)
     }
 
-    private fun handleCallState(state: Int) {
+    private fun handleCallState(call: Call, state: Int) {
+        val phone = call.details.handle?.schemeSpecificPart
         when (state) {
             Call.STATE_RINGING -> {
                 CallRingtoneManager.play(this)
-                showIncomingCallUi()
+                IncomingCallNotifier.show(this, phone)
             }
-            Call.STATE_ACTIVE -> CallRingtoneManager.stop()
+            Call.STATE_DIALING -> {
+                IncomingCallNotifier.show(this, phone)
+            }
+            Call.STATE_ACTIVE -> {
+                IncomingCallNotifier.cancel(this)
+                CallRecordingManager.start(this)
+            }
             Call.STATE_DISCONNECTED, Call.STATE_DISCONNECTING -> {
                 CallRecordingManager.stop()
                 CallRingtoneManager.stop()
+                IncomingCallNotifier.cancel(this)
             }
         }
-    }
-
-    private fun showIncomingCallUi() {
-        startActivity(
-            Intent(this, MainActivity::class.java)
-                .addFlags(
-                    Intent.FLAG_ACTIVITY_NEW_TASK or
-                        Intent.FLAG_ACTIVITY_CLEAR_TOP or
-                        Intent.FLAG_ACTIVITY_SINGLE_TOP or
-                        Intent.FLAG_ACTIVITY_REORDER_TO_FRONT,
-                )
-                .putExtra("incoming_call", true),
-        )
     }
 
     companion object {
@@ -100,6 +94,11 @@ class TelephoneInCallService : InCallService() {
         fun currentRingingPhone(): String? {
             val call = activeCalls.lastOrNull { it.state == Call.STATE_RINGING } ?: return null
             return call.details.handle?.schemeSpecificPart
+        }
+
+        @Synchronized
+        fun currentCallPhone(): String? {
+            return activeCalls.lastOrNull()?.details?.handle?.schemeSpecificPart
         }
 
         @Synchronized
