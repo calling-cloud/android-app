@@ -30,7 +30,7 @@ class TelephoneInCallService : InCallService() {
     }
 
     private fun handleCallState(call: Call, state: Int) {
-        val phone = call.details.handle?.schemeSpecificPart
+        val phone = call.phone()
         when (state) {
             Call.STATE_RINGING -> {
                 CallRingtoneManager.play(this)
@@ -93,12 +93,12 @@ class TelephoneInCallService : InCallService() {
         @Synchronized
         fun currentRingingPhone(): String? {
             val call = activeCalls.lastOrNull { it.state == Call.STATE_RINGING } ?: return null
-            return call.details.handle?.schemeSpecificPart
+            return call.phone()
         }
 
         @Synchronized
         fun currentCallPhone(): String? {
-            return activeCalls.lastOrNull()?.details?.handle?.schemeSpecificPart
+            return activeCalls.lastOrNull()?.phone()
         }
 
         @Synchronized
@@ -124,6 +124,11 @@ class TelephoneInCallService : InCallService() {
                 supported and CallAudioState.ROUTE_BLUETOOTH != 0 -> CallAudioState.ROUTE_BLUETOOTH
                 else -> CallAudioState.ROUTE_EARPIECE
             }
+        }
+
+        private fun Call.phone(): String? {
+            return details.handle?.schemeSpecificPart
+                ?: details.gatewayInfo?.originalAddress?.schemeSpecificPart
         }
     }
 }

@@ -44,6 +44,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.zIndex
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.telephone.model.AuthExpiredException
 import com.example.telephone.model.CallState
 import com.example.telephone.model.CallUi
 import com.example.telephone.model.Customer
@@ -70,6 +71,7 @@ import com.example.telephone.ui.theme.TelephoneTheme
 import com.example.telephone.update.AppUpdateDialog
 import com.example.telephone.update.checkAppUpdate
 import com.example.telephone.update.startAppUpdateDownload
+import kotlin.concurrent.thread
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -94,6 +96,7 @@ class MainActivity : ComponentActivity() {
 private fun ThemedTelephoneApp(activity: ComponentActivity) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("telephone_app", Context.MODE_PRIVATE) }
+    var session by remember { mutableStateOf(loadSession(prefs)) }
     var themeMode by remember { mutableStateOf(ThemeMode.fromStorage(prefs.getString("theme_mode", null))) }
     val darkTheme = when (themeMode) {
         ThemeMode.System -> isSystemInDarkTheme()
@@ -117,10 +120,15 @@ private fun ThemedTelephoneApp(activity: ComponentActivity) {
             }
             RuntimePermissionsRequest()
             DefaultDialerRequest()
-            if (!IncomingCallGate()) {
+            if (!IncomingCallGate(session, onAuthExpired = {
+                    clearSession(prefs)
+                    session = null
+                })) {
                 TelephoneApp(
                     activity = activity,
                     prefs = prefs,
+                    session = session,
+                    onSessionChange = { session = it },
                     themeMode = themeMode,
                     darkTheme = darkTheme,
                     onThemeModeChange = {
@@ -141,6 +149,7 @@ private fun RuntimePermissionsRequest() {
         val permissions = buildList {
             add(Manifest.permission.CALL_PHONE)
             add(Manifest.permission.RECORD_AUDIO)
+            add(Manifest.permission.READ_CONTACTS)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) add(Manifest.permission.POST_NOTIFICATIONS)
         }
             .filter { ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED }
@@ -159,26 +168,27 @@ private fun DefaultDialerRequest() {
 }
 
 @Composable
-private fun IncomingCallGate(): Boolean {
+private fun IncomingCallGate(session: Session?, onAuthExpired: () -> Unit): Boolean {
     val context = LocalContext.current
     var call by remember { mutableStateOf<CallUi?>(null) }
     var message by remember { mutableStateOf("") }
 
     LaunchedEffect(Unit) {
         while (true) {
-            val phone = TelephoneInCallService.currentCallPhone()
+            val systemPhone = TelephoneInCallService.currentCallPhone()
             val state = TelephoneInCallService.currentCallState()
             val current = call
-            val callState = when (state) {
-                android.telecom.Call.STATE_RINGING -> CallState.Incoming
-                android.telecom.Call.STATE_DIALING -> CallState.Dialing
-                android.telecom.Call.STATE_ACTIVE -> CallState.Connected
-                else -> null
-            }
-            val targetPhone = phone ?: "未知号码"
+            val isAppPlacedCall = AppPlacedCallTracker.owns(systemPhone) ||
+                (systemPhone == null &&
+                    AppPlacedCallTracker.hasTrackedCall() &&
+                    (state == android.telecom.Call.STATE_DIALING || state == android.telecom.Call.STATE_ACTIVE))
+            val callState = incomingGateCallState(state, current != null, isAppPlacedCall)
+            val targetPhone = systemPhone ?: AppPlacedCallTracker.currentPhone() ?: UnknownPhone
             when {
                 callState != null -> {
                     message = ""
+                    val fallbackName = if (callState == CallState.Incoming) "未知来电" else "未知通话"
+                    val displayName = if (targetPhone == UnknownPhone) fallbackName else callDisplayName(context, targetPhone, fallbackName)
                     val startedAt = if (callState == CallState.Connected && current?.state != CallState.Connected) {
                         System.currentTimeMillis()
                     } else {
@@ -188,7 +198,7 @@ private fun IncomingCallGate(): Boolean {
                         current.copy(state = callState, startedAt = startedAt)
                     } else {
                         CallUi(
-                            customer = Customer(0, if (callState == CallState.Incoming) "未知来电" else "未知通话", targetPhone, "", ""),
+                            customer = Customer(0, displayName, targetPhone, "", ""),
                             state = callState,
                             startedAt = System.currentTimeMillis(),
                         )
@@ -199,6 +209,26 @@ private fun IncomingCallGate(): Boolean {
                 }
             }
             kotlinx.coroutines.delay(300)
+        }
+    }
+
+    LaunchedEffect(call?.customer?.phone, call?.customer?.name, session?.token) {
+        val current = call ?: return@LaunchedEffect
+        if (session == null || current.customer.phone == UnknownPhone || !isUnknownCallName(current.customer.name)) return@LaunchedEffect
+        val phone = current.customer.phone
+        thread {
+            runCatching { session.api.lookupCustomerName(session.token, phone) }
+                .onSuccess { name ->
+                    if (name.isNullOrBlank()) return@onSuccess
+                    runOnMain {
+                        if (call?.customer?.phone == phone && isUnknownCallName(call!!.customer.name)) {
+                            call = call!!.copy(customer = call!!.customer.copy(name = name))
+                        }
+                    }
+                }
+                .onFailure { error ->
+                    if (error is AuthExpiredException) runOnMain(onAuthExpired)
+                }
         }
     }
 
@@ -236,8 +266,15 @@ private fun IncomingCallGate(): Boolean {
 }
 
 @Composable
-private fun TelephoneApp(activity: ComponentActivity, prefs: SharedPreferences, themeMode: ThemeMode, darkTheme: Boolean, onThemeModeChange: (ThemeMode) -> Unit) {
-    var session by remember { mutableStateOf(loadSession(prefs)) }
+private fun TelephoneApp(
+    activity: ComponentActivity,
+    prefs: SharedPreferences,
+    session: Session?,
+    onSessionChange: (Session?) -> Unit,
+    themeMode: ThemeMode,
+    darkTheme: Boolean,
+    onThemeModeChange: (ThemeMode) -> Unit,
+) {
     val loginNavigationBarColor = CallActiveBlue.copy(alpha = 0.06f).compositeOver(CallBackground)
     val appNavigationBarColor = (if (session == null) loginNavigationBarColor else CallSurfaceColor).toArgb()
     SideEffect {
@@ -254,7 +291,7 @@ private fun TelephoneApp(activity: ComponentActivity, prefs: SharedPreferences, 
     }
     val logout: () -> Unit = {
         clearSession(prefs)
-        session = null
+        onSessionChange(null)
     }
     if (session == null) {
         LoginScreen(
@@ -262,7 +299,7 @@ private fun TelephoneApp(activity: ComponentActivity, prefs: SharedPreferences, 
             serverUrlEditable = BuildConfig.SERVER_URL_EDITABLE,
         ) {
             saveSession(prefs, it)
-            session = it
+            onSessionChange(it)
         }
     } else {
         HomeScreen(

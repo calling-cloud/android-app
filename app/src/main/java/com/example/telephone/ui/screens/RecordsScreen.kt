@@ -18,8 +18,10 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.BasicTextField
@@ -64,6 +66,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -418,7 +421,7 @@ internal fun RecordsScreen(
                 .onSuccess { recordId ->
                     runOnMain {
                         callbackCall = callbackCall?.copy(recordId = recordId, startedAt = System.currentTimeMillis())
-                        placeCall(context, customer.phone)
+                        placeCall(context, customer.phone, customer.name)
                     }
                 }
                 .onFailure { error ->
@@ -601,7 +604,7 @@ internal fun RecordsScreen(
                 detailError = ""
                 onCloseDetail()
             },
-            onCallback = { startCallback(Customer(record.customerId, record.customerName, record.customerPhone, "", "")) },
+            onCallback = { startCallback(Customer(record.customerId, record.customerName, record.customerPhone, record.schoolName, record.gradeName)) },
             onMarkInvalid = { pendingDetailStatus = 4 },
             onMarkDeal = { pendingDetailStatus = 3 },
             onPlayClick = ::playOrPause,
@@ -728,6 +731,7 @@ private fun CallRecordListItem(
 ) {
     val phone = remember(record.customerPhone) { formatPhone(record.customerPhone) }
     val callTime = formatCallTime(record.lastCallAt)
+    val schoolGrade = remember(record.schoolName, record.gradeName) { schoolGradeText(record.schoolName, record.gradeName) }
     AppCard {
         Row(
             Modifier
@@ -749,6 +753,10 @@ private fun CallRecordListItem(
             Column(Modifier.weight(1f)) {
                 Text(record.customerName, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold, color = CallText)
                 Spacer(Modifier.height(4.dp))
+                if (schoolGrade.isNotBlank()) {
+                    Text(schoolGrade, color = CallMutedText, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Spacer(Modifier.height(2.dp))
+                }
                 Text(phone, color = CallMutedText, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Spacer(Modifier.height(2.dp))
                 Text(callTime, color = CallMutedText, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -783,6 +791,8 @@ private fun CallRecordDetailScreen(
     onPlayClick: (CallRecord) -> Unit,
     onSeek: (Int) -> Unit,
 ) {
+    val schoolGrade = remember(record.schoolName, record.gradeName) { schoolGradeText(record.schoolName, record.gradeName) }
+    val canMarkStatus = record.canCallback && record.customerStatus != 3 && record.customerStatus != 4
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         containerColor = CallBackground,
@@ -802,41 +812,41 @@ private fun CallRecordDetailScreen(
             )
         },
     ) { innerPadding ->
-        LazyColumn(
+        Column(
             Modifier
                 .fillMaxSize()
                 .background(CallBackground)
-                .padding(innerPadding),
-            contentPadding = PaddingValues(UiListPadding),
+                .padding(innerPadding)
+                .padding(UiListPadding),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            item {
-                AppCard {
-                    Column(Modifier.fillMaxWidth().padding(UiCardPadding), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Avatar(record.customerName, 58)
-                            Spacer(Modifier.width(12.dp))
-                            Column(Modifier.weight(1f)) {
-                                Text(record.customerName, color = CallText, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                                Text(formatPhone(record.customerPhone), color = CallMutedText)
-                            }
+            AppCard {
+                Column(Modifier.fillMaxWidth().padding(UiCardPadding), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Avatar(record.customerName, 58)
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(record.customerName, color = CallText, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                            if (schoolGrade.isNotBlank()) Text(schoolGrade, color = CallMutedText, style = MaterialTheme.typography.bodyMedium)
+                            Text(formatPhone(record.customerPhone), color = CallMutedText)
                         }
-                        DetailLine("最后通话时间", formatCallTime(record.callAt))
-                        DetailLine("客户状态", customerStatusLabel(record.customerStatus))
-                        DetailLine("最近意向度", record.intentLabel.ifBlank { "未知" })
-                        if (record.remark.isNotBlank()) DetailLine("备注", record.remark)
-                        if (error.isNotBlank()) Text(error, color = CallHangupColor, style = MaterialTheme.typography.bodySmall)
-                        if (loading) CircularProgressIndicator(Modifier.size(22.dp), color = CallActiveBlue)
                     }
+                    DetailLine("最后通话时间", formatCallTime(record.callAt))
+                    if (schoolGrade.isNotBlank()) DetailLine("学校年级", schoolGrade)
+                    DetailLine("客户状态", customerStatusLabel(record.customerStatus))
+                    DetailLine("最近意向度", record.intentLabel.ifBlank { "未知" })
+                    if (record.remark.isNotBlank()) DetailLine("备注", record.remark)
+                    if (error.isNotBlank()) Text(error, color = CallHangupColor, style = MaterialTheme.typography.bodySmall)
+                    if (loading) CircularProgressIndicator(Modifier.size(22.dp), color = CallActiveBlue)
                 }
             }
-            item {
-                AppCard {
-                    Column(Modifier.fillMaxWidth().padding(UiCardPadding), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Text("客户通话时间线", color = CallText, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                        if (history.isEmpty()) {
-                            Text(if (loading) "正在加载" else "暂无通话记录", color = CallMutedText, style = MaterialTheme.typography.bodyMedium)
-                        } else {
+            AppCard(Modifier.fillMaxWidth().weight(1f)) {
+                Column(Modifier.fillMaxSize().padding(UiCardPadding), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("客户通话时间线", color = CallText, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    if (history.isEmpty()) {
+                        Text(if (loading) "正在加载" else "暂无通话记录", color = CallMutedText, style = MaterialTheme.typography.bodyMedium)
+                    } else {
+                        Box(Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState())) {
                             CallRecordTimeline(
                                 history = history,
                                 playingId = playingId,
@@ -853,44 +863,42 @@ private fun CallRecordDetailScreen(
                     }
                 }
             }
-            if (record.canCallback) {
-                item {
+            if (canMarkStatus) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(
-                        onClick = onCallback,
-                        modifier = Modifier.fillMaxWidth().height(UiButtonHeight),
+                        onClick = onMarkInvalid,
+                        enabled = !loading,
+                        modifier = Modifier.weight(1f).height(UiButtonHeight),
                         shape = RoundedCornerShape(UiButtonRadius),
-                        colors = ButtonDefaults.buttonColors(containerColor = CallActiveBlue, contentColor = CallActionContent),
+                        colors = ButtonDefaults.buttonColors(containerColor = CallButtonColor, contentColor = CallText),
                     ) {
-                        Icon(painterResource(android.R.drawable.ic_menu_call), "回拨", modifier = Modifier.size(UiIconSize))
+                        Icon(Icons.Filled.PersonOff, "标记为无效", modifier = Modifier.size(UiIconSize))
                         Spacer(Modifier.width(8.dp))
-                        Text("回拨", fontWeight = FontWeight.Bold)
+                        Text("标记为无效", fontWeight = FontWeight.Bold)
+                    }
+                    Button(
+                        onClick = onMarkDeal,
+                        enabled = !loading,
+                        modifier = Modifier.weight(1f).height(UiButtonHeight),
+                        shape = RoundedCornerShape(UiButtonRadius),
+                        colors = ButtonDefaults.buttonColors(containerColor = CallButtonColor, contentColor = CallText),
+                    ) {
+                        Icon(Icons.Filled.Gavel, "标记为成交", modifier = Modifier.size(UiIconSize))
+                        Spacer(Modifier.width(8.dp))
+                        Text("标记为成交", fontWeight = FontWeight.Bold)
                     }
                 }
-                item {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(
-                            onClick = onMarkInvalid,
-                            enabled = !loading,
-                            modifier = Modifier.weight(1f).height(UiButtonHeight),
-                            shape = RoundedCornerShape(UiButtonRadius),
-                            colors = ButtonDefaults.buttonColors(containerColor = CallButtonColor, contentColor = CallText),
-                        ) {
-                            Icon(Icons.Filled.PersonOff, "标记为无效", modifier = Modifier.size(UiIconSize))
-                            Spacer(Modifier.width(8.dp))
-                            Text("标记为无效", fontWeight = FontWeight.Bold)
-                        }
-                        Button(
-                            onClick = onMarkDeal,
-                            enabled = !loading,
-                            modifier = Modifier.weight(1f).height(UiButtonHeight),
-                            shape = RoundedCornerShape(UiButtonRadius),
-                            colors = ButtonDefaults.buttonColors(containerColor = CallButtonColor, contentColor = CallText),
-                        ) {
-                            Icon(Icons.Filled.Gavel, "标记为成交", modifier = Modifier.size(UiIconSize))
-                            Spacer(Modifier.width(8.dp))
-                            Text("标记为成交", fontWeight = FontWeight.Bold)
-                        }
-                    }
+            }
+            if (record.canCallback) {
+                Button(
+                    onClick = onCallback,
+                    modifier = Modifier.fillMaxWidth().height(UiButtonHeight),
+                    shape = RoundedCornerShape(UiButtonRadius),
+                    colors = ButtonDefaults.buttonColors(containerColor = CallActiveBlue, contentColor = CallActionContent),
+                ) {
+                    Icon(painterResource(android.R.drawable.ic_menu_call), "回拨", modifier = Modifier.size(UiIconSize))
+                    Spacer(Modifier.width(8.dp))
+                    Text("回拨", fontWeight = FontWeight.Bold)
                 }
             }
         }
@@ -1237,6 +1245,9 @@ private fun customerStatusLabel(status: Int) = when (status) {
     else -> "未知"
 }
 
+private fun schoolGradeText(schoolName: String, gradeName: String) =
+    listOf(schoolName, gradeName).filter { it.isNotBlank() }.joinToString(" · ")
+
 private fun quickDays(startDate: LocalDate?, endDate: LocalDate?): Int? {
     if (endDate != LocalDate.now()) return null
     return when (startDate) {
@@ -1262,14 +1273,23 @@ private fun datePickerMillisToLocalDate(millis: Long) = Instant.ofEpochMilli(mil
 
 @Composable
 private fun CustomerStatusBadge(status: Int) {
+    val (background, content) = customerStatusColors(status)
     Box(
         modifier = Modifier
             .clip(RoundedCornerShape(16.dp))
-            .background(CallButtonColor)
+            .background(background)
             .padding(horizontal = 9.dp, vertical = 4.dp),
     ) {
-        Text(customerStatusLabel(status), color = CallText, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+        Text(customerStatusLabel(status), color = content, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
     }
+}
+
+@Composable
+private fun customerStatusColors(status: Int): Pair<Color, Color> = when (status) {
+    2 -> CallActiveBlue to CallActionContent
+    3 -> CallAcceptColor to CallActionContent
+    4 -> CallMutedText.copy(alpha = 0.18f) to CallMutedText
+    else -> CallButtonColor to CallMutedText
 }
 
 @Composable

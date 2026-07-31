@@ -48,8 +48,9 @@ internal fun defaultDialerIntent(context: Context): Intent? {
     }
 }
 
-internal fun placeCall(context: Context, phone: String) {
+internal fun placeCall(context: Context, phone: String, name: String? = null) {
     val uri = Uri.parse("tel:$phone")
+    AppPlacedCallTracker.mark(phone, name)
     runCatching {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             context.getSystemService(TelecomManager::class.java).placeCall(uri, Bundle())
@@ -60,6 +61,53 @@ internal fun placeCall(context: Context, phone: String) {
         context.startActivity(Intent(Intent.ACTION_DIAL, uri))
     }
 }
+
+internal object AppPlacedCallTracker {
+    private var phone: String? = null
+    private var name: String? = null
+
+    @Synchronized
+    fun mark(value: String, displayName: String? = null) {
+        phone = value.normalizedPhone()
+        name = displayName?.takeIf { it.isNotBlank() }
+    }
+
+    @Synchronized
+    fun owns(value: String?): Boolean {
+        return value?.normalizedPhone() == phone
+    }
+
+    @Synchronized
+    fun hasTrackedCall() = phone != null
+
+    @Synchronized
+    fun currentPhone() = phone
+
+    @Synchronized
+    fun nameFor(value: String?) = if (owns(value)) name else null
+
+    @Synchronized
+    fun clear(value: String? = null) {
+        if (value == null || owns(value)) {
+            phone = null
+            name = null
+        }
+    }
+}
+
+private fun String.normalizedPhone() = filter { it.isDigit() }.removePrefix("86")
+
+internal fun incomingGateCallState(state: Int?, hasCall: Boolean, isAppPlacedCall: Boolean) = when (state) {
+    android.telecom.Call.STATE_RINGING -> com.example.telephone.model.CallState.Incoming
+    android.telecom.Call.STATE_DIALING -> if (isAppPlacedCall) com.example.telephone.model.CallState.Dialing else null
+    android.telecom.Call.STATE_ACTIVE -> if (hasCall || isAppPlacedCall) com.example.telephone.model.CallState.Connected else null
+    else -> null
+}
+
+internal fun isFinishedSystemCallState(state: Int?) =
+    state == null ||
+        state == android.telecom.Call.STATE_DISCONNECTED ||
+        state == android.telecom.Call.STATE_DISCONNECTING
 
 internal fun setSpeaker(context: Context, enabled: Boolean): Boolean {
     if (TelephoneInCallService.setCallSpeaker(enabled)) return true

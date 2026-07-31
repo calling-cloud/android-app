@@ -79,6 +79,11 @@ internal class ApiClient(val baseUrl: String) {
         request("PUT", "/api/app/customers/$customerId/status", token, JSONObject().put("status", status))
     }
 
+    fun lookupCustomerName(token: String, phone: String): String? {
+        val data = request("GET", "/api/app/customers/lookup?phone=${phone.urlEncoded()}", token).optJSONObject("data") ?: return null
+        return data.optString("customerName").takeIf { it.isNotBlank() }
+    }
+
     fun updateCallRecord(token: String, id: Int, durationSeconds: Int, intentLevel: Int, remark: String, recordingUrl: String?) {
         request(
             "PUT",
@@ -324,6 +329,8 @@ private fun JSONObject.toCallRecord() = CallRecord(
     customerName = optString("customerName"),
     customerPhone = optString("customerPhone"),
     customerStatus = optInt("customerStatus"),
+    schoolName = optString("schoolName"),
+    gradeName = optString("gradeName"),
     callAt = optString("callAt"),
     callEmployeeName = optString("callEmployeeName"),
     durationSeconds = optInt("durationSeconds"),
@@ -340,6 +347,8 @@ private fun JSONObject.toCallSummary() = CallSummary(
     customerName = optString("customerName"),
     customerPhone = optString("customerPhone"),
     customerStatus = optInt("customerStatus"),
+    schoolName = optString("schoolName"),
+    gradeName = optString("gradeName"),
     lastCallRecordId = optInt("lastCallRecordId"),
     lastCallAt = optString("lastCallAt"),
     lastIntentLevel = optInt("lastIntentLevel"),

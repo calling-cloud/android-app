@@ -50,8 +50,12 @@ import com.example.telephone.CallRecordingManager
 import com.example.telephone.PendingCallSync
 import com.example.telephone.PendingCallSyncCache
 import com.example.telephone.TelephoneInCallService
+import com.example.telephone.UnknownPhone
+import com.example.telephone.callDisplayName
 import com.example.telephone.formatCallTime
 import com.example.telephone.formatDuration
+import com.example.telephone.isFinishedSystemCallState
+import com.example.telephone.isUnknownCallName
 import com.example.telephone.model.AuthExpiredException
 import com.example.telephone.model.AssignedCustomerPage
 import com.example.telephone.model.CallRecord
@@ -302,7 +306,7 @@ internal fun DialerScreen(
             if (incomingPhone != null && call?.state != CallState.Incoming) {
                 callMessage = ""
                 call = CallUi(
-                    customer = Customer(0, "未知来电", incomingPhone, "", ""),
+                    customer = Customer(0, callDisplayName(context, incomingPhone, "未知来电"), incomingPhone, "", ""),
                     state = CallState.Incoming,
                     startedAt = System.currentTimeMillis(),
                 )
@@ -326,6 +330,25 @@ internal fun DialerScreen(
                 finishConnectedCall(recording)
             }
             kotlinx.coroutines.delay(500)
+        }
+    }
+    LaunchedEffect(call?.customer?.phone, call?.customer?.name, session.token) {
+        val current = call ?: return@LaunchedEffect
+        if (current.customer.id != 0 || current.customer.phone == UnknownPhone || !isUnknownCallName(current.customer.name)) return@LaunchedEffect
+        val phone = current.customer.phone
+        thread {
+            runCatching { session.api.lookupCustomerName(session.token, phone) }
+                .onSuccess { name ->
+                    if (name.isNullOrBlank()) return@onSuccess
+                    runOnMain {
+                        if (call?.customer?.phone == phone && isUnknownCallName(call!!.customer.name)) {
+                            call = call!!.copy(customer = call!!.customer.copy(name = name))
+                        }
+                    }
+                }
+                .onFailure { error ->
+                    runOnMain { if (error is AuthExpiredException) onAuthExpired() }
+                }
         }
     }
     LaunchedEffect(call != null) { onChromeHiddenChange(call != null) }
@@ -422,7 +445,7 @@ internal fun DialerScreen(
                                 .onSuccess { recordId ->
                                     runOnMain {
                                         call = call?.copy(recordId = recordId, startedAt = System.currentTimeMillis())
-                                        placeCall(context, target.phone)
+                                        placeCall(context, target.phone, target.name)
                                     }
                                 }
                                 .onFailure { error ->
