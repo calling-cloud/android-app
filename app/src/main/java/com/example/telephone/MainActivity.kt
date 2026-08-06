@@ -142,6 +142,48 @@ private fun ThemedTelephoneApp(activity: ComponentActivity) {
 }
 
 @Composable
+private fun StartupAppUpdateCheck(baseUrl: String) {
+    val context = LocalContext.current
+    val currentVersionCode = remember { AppUpdateInstaller.currentVersionCode(context) }
+    val api = remember(baseUrl) { ApiClient(baseUrl) }
+    var update by remember { mutableStateOf<AppUpdateInfo?>(null) }
+    var updateProgress by remember { mutableStateOf(0f) }
+    var updateDownloading by remember { mutableStateOf(false) }
+    var updateMessage by remember { mutableStateOf("") }
+
+    LaunchedEffect(api, currentVersionCode) {
+        checkAppUpdate(
+            api = api,
+            currentVersionCode = currentVersionCode,
+            onFound = {
+                update = it
+                updateMessage = ""
+            },
+        )
+    }
+
+    update?.let { info ->
+        AppUpdateDialog(
+            update = info,
+            currentVersionCode = currentVersionCode,
+            downloading = updateDownloading,
+            progress = updateProgress,
+            message = updateMessage,
+            onUpdate = {
+                startAppUpdateDownload(
+                    context = context,
+                    update = info,
+                    onDownloading = { updateDownloading = it },
+                    onProgress = { updateProgress = it },
+                    onMessage = { updateMessage = it },
+                )
+            },
+            onDismiss = { update = null },
+        )
+    }
+}
+
+@Composable
 private fun RuntimePermissionsRequest() {
     val context = LocalContext.current
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {}
@@ -289,13 +331,19 @@ private fun TelephoneApp(
             ) { darkTheme },
         )
     }
+    val initialServerUrl = if (BuildConfig.SERVER_URL_EDITABLE) {
+        prefs.getString("server_url", null) ?: BuildConfig.DEFAULT_SERVER_URL
+    } else {
+        BuildConfig.DEFAULT_SERVER_URL
+    }
+    StartupAppUpdateCheck(session?.api?.baseUrl ?: initialServerUrl)
     val logout: () -> Unit = {
         clearSession(prefs)
         onSessionChange(null)
     }
     if (session == null) {
         LoginScreen(
-            initialServerUrl = if (BuildConfig.SERVER_URL_EDITABLE) prefs.getString("server_url", null) ?: BuildConfig.DEFAULT_SERVER_URL else BuildConfig.DEFAULT_SERVER_URL,
+            initialServerUrl = initialServerUrl,
             serverUrlEditable = BuildConfig.SERVER_URL_EDITABLE,
         ) {
             saveSession(prefs, it)
@@ -322,28 +370,12 @@ private fun HomeScreen(session: Session, themeMode: ThemeMode, onThemeModeChange
     val routeHidesChrome = detailRecordId != null
     val tab = selectedTab
     val statsViewModel: StatsViewModel = viewModel()
-    val currentVersionCode = remember { AppUpdateInstaller.currentVersionCode(context) }
     var dialerHidesChrome by remember { mutableStateOf(false) }
     var recordsHidesChrome by remember { mutableStateOf(false) }
     val hideChrome = when (selectedTab) {
         MainTab.Dialer -> dialerHidesChrome
         MainTab.Records -> recordsHidesChrome
         else -> false
-    }
-    var update by remember { mutableStateOf<AppUpdateInfo?>(null) }
-    var updateProgress by remember { mutableStateOf(0f) }
-    var updateDownloading by remember { mutableStateOf(false) }
-    var updateMessage by remember { mutableStateOf("") }
-
-    LaunchedEffect(session.token) {
-        checkAppUpdate(
-            api = session.api,
-            currentVersionCode = currentVersionCode,
-            onFound = {
-                update = it
-                updateMessage = ""
-            },
-        )
     }
     LaunchedEffect(session.token) {
         while (true) {
@@ -421,25 +453,6 @@ private fun HomeScreen(session: Session, themeMode: ThemeMode, onThemeModeChange
         }
     }
 
-    update?.let { info ->
-        AppUpdateDialog(
-            update = info,
-            currentVersionCode = currentVersionCode,
-            downloading = updateDownloading,
-            progress = updateProgress,
-            message = updateMessage,
-            onUpdate = {
-                startAppUpdateDownload(
-                    context = context,
-                    update = info,
-                    onDownloading = { updateDownloading = it },
-                    onProgress = { updateProgress = it },
-                    onMessage = { updateMessage = it },
-                )
-            },
-            onDismiss = { update = null },
-        )
-    }
 }
 
 @Composable
