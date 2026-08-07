@@ -211,7 +211,7 @@ internal class ApiClient(val baseUrl: String) {
         val connection = (URL("$baseUrl$path").openConnection() as HttpURLConnection).apply {
             requestMethod = method
             connectTimeout = 8000
-            readTimeout = 8000
+            readTimeout = 30_000
             setRequestProperty("Accept", "application/json")
             if (token != null) setRequestProperty("Authorization", "Bearer $token")
             if (body != null) {
@@ -321,6 +321,9 @@ private fun JSONObject.toCustomer() = Customer(
     phone = optString("phone"),
     schoolName = optString("schoolName"),
     gradeName = optString("gradeName"),
+    exclusiveEmployeeId = optInt("exclusiveEmployeeId").takeIf { has("exclusiveEmployeeId") && !isNull("exclusiveEmployeeId") },
+    exclusiveMode = optInt("exclusiveMode").takeIf { has("exclusiveMode") && !isNull("exclusiveMode") },
+    maxExclusiveAssignCount = optInt("maxExclusiveAssignCount").takeIf { has("maxExclusiveAssignCount") && !isNull("maxExclusiveAssignCount") },
 )
 
 private fun JSONObject.toCallRecord() = CallRecord(

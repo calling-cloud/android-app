@@ -102,6 +102,7 @@ internal fun DialerScreen(
     var loading by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf("") }
     var callMessage by remember { mutableStateOf("") }
+    var callSubmitting by remember { mutableStateOf(false) }
     var call by remember { mutableStateOf<CallUi?>(null) }
     var callCustomerStatusChanged by remember { mutableStateOf(false) }
     var callStatusMarking by remember { mutableStateOf(false) }
@@ -425,6 +426,7 @@ internal fun DialerScreen(
                     CustomerCard(
                         customer = customer,
                         loading = loading,
+                        callLoading = callSubmitting,
                         message = message,
                         page = customerPage,
                         total = customerTotal,
@@ -436,7 +438,7 @@ internal fun DialerScreen(
                         onCopyPhone = { copyCustomerPhone(it) },
                     ) {
                         val target = it
-                        call = CallUi(customer = target, state = CallState.Dialing, startedAt = System.currentTimeMillis())
+                        callSubmitting = true
                         callMessage = ""
                         callCustomerStatusChanged = false
                         callStatusMarking = false
@@ -444,12 +446,14 @@ internal fun DialerScreen(
                             runCatching { session.api.createCallRecord(session.token, target.id) }
                                 .onSuccess { recordId ->
                                     runOnMain {
-                                        call = call?.copy(recordId = recordId, startedAt = System.currentTimeMillis())
+                                        callSubmitting = false
+                                        call = CallUi(customer = target, state = CallState.Dialing, startedAt = System.currentTimeMillis(), recordId = recordId)
                                         placeCall(context, target.phone, target.name)
                                     }
                                 }
                                 .onFailure { error ->
                                     runOnMain {
+                                        callSubmitting = false
                                         call = null
                                         if (error is AuthExpiredException) onAuthExpired() else message = error.message ?: "创建通话记录失败"
                                     }

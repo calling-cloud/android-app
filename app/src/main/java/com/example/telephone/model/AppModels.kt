@@ -4,7 +4,16 @@ import com.example.telephone.ApiClient
 
 internal data class Session(val api: ApiClient, val token: String, val username: String, val realName: String)
 
-internal data class Customer(val id: Int, val name: String, val phone: String, val schoolName: String, val gradeName: String)
+internal data class Customer(
+    val id: Int,
+    val name: String,
+    val phone: String,
+    val schoolName: String,
+    val gradeName: String,
+    val exclusiveEmployeeId: Int? = null,
+    val exclusiveMode: Int? = null,
+    val maxExclusiveAssignCount: Int? = null,
+)
 
 internal data class AssignedCustomerPage(val customer: Customer?, val page: Int, val total: Int)
 

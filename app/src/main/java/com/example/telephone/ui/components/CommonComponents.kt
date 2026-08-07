@@ -96,6 +96,7 @@ import com.example.telephone.ui.intentLevelLabel
 internal fun CustomerCard(
     customer: Customer?,
     loading: Boolean,
+    callLoading: Boolean = false,
     message: String,
     page: Int,
     total: Int,
@@ -177,7 +178,7 @@ internal fun CustomerCard(
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                 OutlinedButton(
-                    enabled = !loading && page > 1,
+                    enabled = !loading && !callLoading && page > 1,
                     onClick = onPrevious,
                     modifier = Modifier.weight(1f).height(UiButtonHeight).defaultMinSize(minWidth = 0.dp),
                     shape = RoundedCornerShape(UiButtonRadius),
@@ -187,7 +188,7 @@ internal fun CustomerCard(
                     Icon(Icons.Filled.ChevronLeft, "上一位", modifier = Modifier.size(UiIconSize))
                 }
                 OutlinedButton(
-                    enabled = !loading && page > 1,
+                    enabled = !loading && !callLoading && page > 1,
                     onClick = onReset,
                     modifier = Modifier.weight(1f).height(UiButtonHeight).defaultMinSize(minWidth = 0.dp),
                     shape = RoundedCornerShape(UiButtonRadius),
@@ -197,7 +198,7 @@ internal fun CustomerCard(
                     Icon(Icons.Filled.Autorenew, "重置", modifier = Modifier.size(UiIconSize))
                 }
                 OutlinedButton(
-                    enabled = !loading && customer != null,
+                    enabled = !loading && !callLoading && customer != null,
                     onClick = onMarkInvalid,
                     modifier = Modifier.weight(1f).height(UiButtonHeight).defaultMinSize(minWidth = 0.dp),
                     shape = RoundedCornerShape(UiButtonRadius),
@@ -207,7 +208,7 @@ internal fun CustomerCard(
                     Icon(Icons.Filled.PersonOff, "标记为无效", modifier = Modifier.size(UiIconSize))
                 }
                 OutlinedButton(
-                    enabled = !loading && customer != null,
+                    enabled = !loading && !callLoading && customer != null,
                     onClick = onMarkDeal,
                     modifier = Modifier.weight(1f).height(UiButtonHeight).defaultMinSize(minWidth = 0.dp),
                     shape = RoundedCornerShape(UiButtonRadius),
@@ -217,7 +218,7 @@ internal fun CustomerCard(
                     Icon(Icons.Filled.Gavel, "标记为成交", modifier = Modifier.size(UiIconSize))
                 }
                 OutlinedButton(
-                    enabled = !loading && total > 0 && page < total,
+                    enabled = !loading && !callLoading && total > 0 && page < total,
                     onClick = onNext,
                     modifier = Modifier.weight(1f).height(UiButtonHeight).defaultMinSize(minWidth = 0.dp),
                     shape = RoundedCornerShape(UiButtonRadius),
@@ -228,15 +229,19 @@ internal fun CustomerCard(
                 }
             }
             Button(
-                enabled = customer != null,
+                enabled = customer != null && !loading && !callLoading,
                 onClick = { customer?.let(onCall) },
                 modifier = Modifier.fillMaxWidth().height(UiButtonHeight),
                 shape = RoundedCornerShape(UiButtonRadius),
                 colors = ButtonDefaults.buttonColors(containerColor = CallActiveBlue, contentColor = CallActionContent, disabledContainerColor = CallButtonColor),
             ) {
-                Icon(painterResource(android.R.drawable.ic_menu_call), "拨号", modifier = Modifier.size(UiIconSize))
+                if (callLoading) {
+                    CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = CallActionContent)
+                } else {
+                    Icon(painterResource(android.R.drawable.ic_menu_call), "拨号", modifier = Modifier.size(UiIconSize))
+                }
                 Spacer(Modifier.width(8.dp))
-                Text("拨号")
+                Text(if (callLoading) "请求中" else "拨号")
             }
         }
     }
