@@ -71,6 +71,13 @@ internal data class StatisticsRank(
 
 internal data class CallSummaryPage(val items: List<CallSummary>, val nextCursor: String?)
 
+internal data class CustomerCallRecordPage(
+    val items: List<CallRecord>,
+    val total: Int,
+    val message: String = "",
+    val canAccess: Boolean = true,
+)
+
 internal data class CallRecordQuery(
     val keyword: String = "",
     val customerStatus: Int? = null,

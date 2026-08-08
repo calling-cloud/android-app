@@ -99,8 +99,8 @@ private fun String.normalizedPhone() = filter { it.isDigit() }.removePrefix("86"
 
 internal fun incomingGateCallState(state: Int?, hasCall: Boolean, isAppPlacedCall: Boolean) = when (state) {
     android.telecom.Call.STATE_RINGING -> com.example.telephone.model.CallState.Incoming
-    android.telecom.Call.STATE_DIALING -> if (isAppPlacedCall) com.example.telephone.model.CallState.Dialing else null
-    android.telecom.Call.STATE_ACTIVE -> if (hasCall || isAppPlacedCall) com.example.telephone.model.CallState.Connected else null
+    android.telecom.Call.STATE_DIALING -> if (isAppPlacedCall) null else com.example.telephone.model.CallState.Dialing
+    android.telecom.Call.STATE_ACTIVE -> if (hasCall || !isAppPlacedCall) com.example.telephone.model.CallState.Connected else null
     else -> null
 }
 

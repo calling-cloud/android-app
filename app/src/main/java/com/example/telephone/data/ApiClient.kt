@@ -10,6 +10,7 @@ import com.example.telephone.model.CallRecord
 import com.example.telephone.model.CallRecordQuery
 import com.example.telephone.model.CallSummary
 import com.example.telephone.model.CallSummaryPage
+import com.example.telephone.model.CustomerCallRecordPage
 import com.example.telephone.model.Customer
 import com.example.telephone.model.DialerOptions
 import com.example.telephone.model.GradeOption
@@ -166,9 +167,15 @@ internal class ApiClient(val baseUrl: String) {
         return request("GET", "/api/app/call-records/$id", token).getJSONObject("data").toCallRecord()
     }
 
-    fun customerCallRecords(token: String, customerId: Int): List<CallRecord> {
-        val items = request("GET", "/api/app/customers/$customerId/call-records?pageSize=20", token).getJSONObject("data").optJSONArray("items") ?: JSONArray()
-        return (0 until items.length()).map { index -> items.getJSONObject(index).toCallRecord() }
+    fun customerCallRecords(token: String, customerId: Int): CustomerCallRecordPage {
+        val data = request("GET", "/api/app/customers/$customerId/call-records?pageSize=20", token).getJSONObject("data")
+        val items = data.optJSONArray("items") ?: JSONArray()
+        return CustomerCallRecordPage(
+            items = (0 until items.length()).map { index -> items.getJSONObject(index).toCallRecord() },
+            total = data.optInt("total"),
+            message = data.optString("message"),
+            canAccess = data.optBoolean("callRecordAccess", true),
+        )
     }
 
     fun changePassword(token: String, oldPassword: String, newPassword: String) {

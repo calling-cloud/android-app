@@ -22,6 +22,7 @@ class TelephoneInCallService : InCallService() {
     }
 
     override fun onCallRemoved(call: Call) {
+        AppPlacedCallTracker.clear(call.phone())
         untrackCall(call)
         callbacks.remove(call)?.let(call::unregisterCallback)
         CallRecordingManager.stop()
@@ -44,6 +45,7 @@ class TelephoneInCallService : InCallService() {
                 CallRecordingManager.start(this)
             }
             Call.STATE_DISCONNECTED, Call.STATE_DISCONNECTING -> {
+                AppPlacedCallTracker.clear(phone)
                 CallRecordingManager.stop()
                 CallRingtoneManager.stop()
                 IncomingCallNotifier.cancel(this)
