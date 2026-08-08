@@ -81,6 +81,7 @@ import com.example.telephone.formatCallTime
 import com.example.telephone.formatDuration
 import com.example.telephone.formatPhone
 import com.example.telephone.intentColor
+import com.example.telephone.isFinishedSystemCallState
 import com.example.telephone.model.AuthExpiredException
 import com.example.telephone.model.CallRecord
 import com.example.telephone.model.CallRecordQuery
@@ -152,6 +153,8 @@ internal fun RecordsScreen(
     var filterError by remember { mutableStateOf("") }
     var detail by remember(detailId) { mutableStateOf<CallRecord?>(null) }
     var detailHistory by remember { mutableStateOf<List<CallRecord>>(emptyList()) }
+    var detailHistoryTotal by remember { mutableIntStateOf(0) }
+    var detailHistoryMessage by remember { mutableStateOf("") }
     var detailLoading by remember { mutableStateOf(false) }
     var detailError by remember { mutableStateOf("") }
     var pendingDetailStatus by remember { mutableStateOf<Int?>(null) }
@@ -263,15 +266,19 @@ internal fun RecordsScreen(
         detailLoading = true
         detailError = ""
         detailHistory = emptyList()
+        detailHistoryTotal = 0
+        detailHistoryMessage = ""
         thread {
             runCatching {
                 val record = session.api.callRecord(session.token, id)
                 record to session.api.customerCallRecords(session.token, record.customerId)
             }
-                .onSuccess { (record, history) ->
+                .onSuccess { (record, historyPage) ->
                     runOnMain {
                         detail = record
-                        detailHistory = history
+                        detailHistory = historyPage.items
+                        detailHistoryTotal = historyPage.total
+                        detailHistoryMessage = historyPage.message
                     }
                 }
                 .onFailure { error -> runOnMain { if (error is AuthExpiredException) onAuthExpired() else detailError = error.message ?: "详情加载失败" } }
@@ -288,10 +295,12 @@ internal fun RecordsScreen(
                 session.api.updateCustomerStatus(session.token, record.customerId, status)
                 val updated = session.api.callRecord(session.token, record.id)
                 updated to session.api.customerCallRecords(session.token, updated.customerId)
-            }.onSuccess { (updated, history) ->
+            }.onSuccess { (updated, historyPage) ->
                 runOnMain {
                     detail = updated
-                    detailHistory = history
+                    detailHistory = historyPage.items
+                    detailHistoryTotal = historyPage.total
+                    detailHistoryMessage = historyPage.message
                     records.indices.forEach { index ->
                         if (records[index].customerId == updated.customerId) {
                             records[index] = records[index].copy(customerStatus = updated.customerStatus)
@@ -480,11 +489,11 @@ internal fun RecordsScreen(
                         CallRecordingManager.start(context)
                         callbackCall = activeCall.copy(state = CallState.Connected, startedAt = System.currentTimeMillis())
                     }
-                    systemState == null && System.currentTimeMillis() - activeCall.startedAt > 5000 -> {
+                    isFinishedSystemCallState(systemState) && System.currentTimeMillis() - activeCall.startedAt > 5000 -> {
                         callbackCall = null
                     }
                 }
-            } else if (activeCall?.state == CallState.Connected && systemState == null) {
+            } else if (activeCall?.state == CallState.Connected && isFinishedSystemCallState(systemState)) {
                 val recording = CallRecordingManager.stop() ?: CallRecordingManager.takeLastFinishedFile()
                 finishCallback(recording)
             }
@@ -590,6 +599,8 @@ internal fun RecordsScreen(
         CallRecordDetailScreen(
             record = record,
             history = detailHistory,
+            historyTotal = detailHistoryTotal,
+            historyMessage = detailHistoryMessage,
             loading = detailLoading,
             error = detailError,
             playingId = playingId,
@@ -775,6 +786,8 @@ private fun CallRecordListItem(
 private fun CallRecordDetailScreen(
     record: CallRecord,
     history: List<CallRecord>,
+    historyTotal: Int,
+    historyMessage: String,
     loading: Boolean,
     error: String,
     isPlayingRecording: Boolean,
@@ -842,9 +855,13 @@ private fun CallRecordDetailScreen(
             }
             AppCard(Modifier.fillMaxWidth().weight(1f)) {
                 Column(Modifier.fillMaxSize().padding(UiCardPadding), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("客户通话时间线", color = CallText, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Text("客户通话时间线（${historyTotal}次）", color = CallText, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                     if (history.isEmpty()) {
-                        Text(if (loading) "正在加载" else "暂无通话记录", color = CallMutedText, style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            if (loading) "正在加载" else historyMessage.ifBlank { "暂无通话记录" },
+                            color = CallMutedText,
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
                     } else {
                         Box(Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState())) {
                             CallRecordTimeline(

@@ -108,6 +108,7 @@ internal fun DialerScreen(
     var callStatusMarking by remember { mutableStateOf(false) }
     var pendingConfirm by remember { mutableStateOf<String?>(null) }
     var callRecords by remember { mutableStateOf<List<CallRecord>>(emptyList()) }
+    var callRecordsTotal by remember { mutableIntStateOf(0) }
     var callRecordsLoading by remember { mutableStateOf(false) }
     var callRecordsMessage by remember { mutableStateOf("") }
     var schoolOptions by remember { mutableStateOf<List<SchoolOption>>(emptyList()) }
@@ -124,15 +125,21 @@ internal fun DialerScreen(
 
     fun loadCustomerCallRecords(customerId: Int) {
         callRecords = emptyList()
+        callRecordsTotal = 0
         callRecordsLoading = true
         callRecordsMessage = ""
         thread {
             runCatching { session.api.customerCallRecords(session.token, customerId) }
-                .onSuccess { records ->
+                .onSuccess { page ->
                     runOnMain {
                         if (customer?.id == customerId) {
-                            callRecords = records
-                            callRecordsMessage = if (records.isEmpty()) "暂无通话记录" else ""
+                            callRecords = page.items
+                            callRecordsTotal = page.total
+                            callRecordsMessage = when {
+                                page.message.isNotBlank() -> page.message
+                                page.items.isEmpty() -> "暂无通话记录"
+                                else -> ""
+                            }
                         }
                     }
                 }
@@ -156,6 +163,7 @@ internal fun DialerScreen(
         message = if (page.customer == null) "暂无可拨客户" else ""
         if (page.customer == null) {
             callRecords = emptyList()
+            callRecordsTotal = 0
             callRecordsLoading = false
             callRecordsMessage = ""
         } else {
@@ -322,11 +330,11 @@ internal fun DialerScreen(
                         CallRecordingManager.start(context)
                         call = activeCall.copy(state = CallState.Connected, startedAt = System.currentTimeMillis())
                     }
-                    systemState == null && System.currentTimeMillis() - activeCall.startedAt > 5000 -> {
+                    isFinishedSystemCallState(systemState) && System.currentTimeMillis() - activeCall.startedAt > 5000 -> {
                         call = null
                     }
                 }
-            } else if (activeCall?.state == CallState.Connected && systemState == null) {
+            } else if (activeCall?.state == CallState.Connected && isFinishedSystemCallState(systemState)) {
                 val recording = CallRecordingManager.stop() ?: CallRecordingManager.takeLastFinishedFile()
                 finishConnectedCall(recording)
             }
@@ -465,6 +473,7 @@ internal fun DialerScreen(
                     item {
                         CustomerCallTimeline(
                             records = callRecords,
+                            total = callRecordsTotal,
                             loading = callRecordsLoading,
                             message = callRecordsMessage,
                         )
@@ -508,6 +517,7 @@ internal fun DialerScreen(
                             if (next == null) {
                                 message = if (customerTotal > 0) "已到最后一位" else "暂无可拨客户"
                                 callRecords = emptyList()
+                                callRecordsTotal = 0
                                 callRecordsLoading = false
                                 callRecordsMessage = ""
                             } else {
@@ -627,10 +637,10 @@ private fun DialerFilters(
 }
 
 @Composable
-private fun CustomerCallTimeline(records: List<CallRecord>, loading: Boolean, message: String) {
+private fun CustomerCallTimeline(records: List<CallRecord>, total: Int, loading: Boolean, message: String) {
     AppCard {
         Column(Modifier.fillMaxWidth().padding(UiCardPadding), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("通话时间线", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = CallText)
+            Text("通话时间线（${total}次）", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = CallText)
             when {
                 loading -> CircularProgressIndicator(color = CallActiveBlue, modifier = Modifier.size(24.dp))
                 records.isEmpty() -> Text(message.ifBlank { "暂无通话记录" }, color = CallMutedText, style = MaterialTheme.typography.bodyMedium)

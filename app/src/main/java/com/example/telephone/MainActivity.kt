@@ -38,6 +38,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.font.FontWeight
@@ -246,7 +248,7 @@ private fun IncomingCallGate(session: Session?, onAuthExpired: () -> Unit): Bool
                         )
                     }
                 }
-                current != null && state == null && System.currentTimeMillis() - current.startedAt > 1000 -> {
+                current != null && isFinishedSystemCallState(state) && System.currentTimeMillis() - current.startedAt > 1000 -> {
                     call = null
                 }
             }
@@ -459,6 +461,14 @@ private fun HomeScreen(session: Session, themeMode: ThemeMode, onThemeModeChange
 private fun KeepAliveTab(tab: MainTab, selectedTab: MainTab, onShow: () -> Unit = {}, content: @Composable () -> Unit) {
     val visible = tab == selectedTab
     val latestOnShow = rememberUpdatedState(onShow)
+    val hiddenInputBlocker = Modifier.pointerInput(Unit) {
+        awaitPointerEventScope {
+            while (true) {
+                val event = awaitPointerEvent(PointerEventPass.Initial)
+                event.changes.forEach { it.consume() }
+            }
+        }
+    }
     LaunchedEffect(visible) {
         if (visible) latestOnShow.value()
     }
@@ -467,7 +477,7 @@ private fun KeepAliveTab(tab: MainTab, selectedTab: MainTab, onShow: () -> Unit 
             .fillMaxSize()
             .graphicsLayer { alpha = if (visible) 1f else 0f }
             .zIndex(if (visible) 1f else 0f)
-            .then(if (visible) Modifier else Modifier.clearAndSetSemantics {}),
+            .then(if (visible) Modifier else hiddenInputBlocker.clearAndSetSemantics {}),
     ) {
         content()
     }
