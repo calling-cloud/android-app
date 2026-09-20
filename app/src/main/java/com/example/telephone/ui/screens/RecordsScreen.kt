@@ -1,6 +1,7 @@
 package com.example.telephone.ui.screens
 
 import android.net.Uri
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -145,6 +146,7 @@ internal fun RecordsScreen(
     var hasMore by remember { mutableStateOf(true) }
     var isRefreshing by remember { mutableStateOf(false) }
     var isLoadingMore by remember { mutableStateOf(false) }
+    var recordsError by remember { mutableStateOf("") }
     var keyword by remember { mutableStateOf("") }
     var selectedStatus by remember { mutableStateOf<Int?>(null) }
     var selectedIntent by remember { mutableStateOf<Int?>(null) }
@@ -217,6 +219,7 @@ internal fun RecordsScreen(
             isRefreshing = true
             nextCursor = null
             hasMore = true
+            recordsError = ""
         }
         val query = activeQuery()
         thread {
@@ -229,7 +232,15 @@ internal fun RecordsScreen(
                         hasMore = result.nextCursor != null
                     }
                 }
-                .onFailure { runOnMain { if (it is AuthExpiredException) onAuthExpired() } }
+                .onFailure {
+                    runOnMain {
+                        if (it is AuthExpiredException) {
+                            onAuthExpired()
+                        } else {
+                            recordsError = it.message ?: "通话记录加载失败"
+                        }
+                    }
+                }
             runOnMain {
                 isRefreshing = false
                 isLoadingMore = false
@@ -308,7 +319,15 @@ internal fun RecordsScreen(
                     }
                 }
             }.onFailure { error ->
-                runOnMain { if (error is AuthExpiredException) onAuthExpired() else detailError = error.message ?: "标记失败" }
+                runOnMain {
+                    if (error is AuthExpiredException) {
+                        onAuthExpired()
+                    } else {
+                        val errorMessage = error.message ?: "标记失败"
+                        detailError = errorMessage
+                        Toast.makeText(context, errorMessage, Toast.LENGTH_LONG).show()
+                    }
+                }
             }
             runOnMain { detailLoading = false }
         }
@@ -320,6 +339,8 @@ internal fun RecordsScreen(
         callbackStatusMarking = true
         thread {
             runCatching {
+                val recordId = currentCall.recordId ?: error("缺少通话记录ID，无法标记")
+                session.api.syncCallRecord(session.token, recordId, currentCall.durationSeconds, currentCall.recordingUrl)
                 session.api.updateCustomerStatus(session.token, currentCall.customer.id, status)
                 session.api.callSummaries(session.token, query = query)
             }.onSuccess { result ->
@@ -333,7 +354,15 @@ internal fun RecordsScreen(
                     detailHistory = detailHistory.map { if (it.customerId == currentCall.customer.id) it.copy(customerStatus = status) else it }
                 }
             }.onFailure { error ->
-                runOnMain { if (error is AuthExpiredException) onAuthExpired() else callbackMessage = error.message ?: "标记失败" }
+                runOnMain {
+                    if (error is AuthExpiredException) {
+                        onAuthExpired()
+                    } else {
+                        val errorMessage = error.message ?: "标记失败"
+                        callbackMessage = errorMessage
+                        Toast.makeText(context, errorMessage, Toast.LENGTH_LONG).show()
+                    }
+                }
             }
             runOnMain { callbackStatusMarking = false }
         }
@@ -657,9 +686,20 @@ internal fun RecordsScreen(
                     },
                 )
             }
+            if (recordsError.isNotBlank() && records.isNotEmpty()) {
+                item(key = "error", contentType = "error") {
+                    Text(recordsError, color = CallHangupColor, style = MaterialTheme.typography.bodyMedium)
+                }
+            }
             if (records.isEmpty()) {
                 item(key = "empty", contentType = "empty") {
-                    EmptyState(if (isRefreshing) "正在刷新" else "暂无通话记录")
+                    EmptyState(
+                        when {
+                            isRefreshing -> "正在刷新"
+                            recordsError.isNotBlank() -> recordsError
+                            else -> "暂无通话记录"
+                        },
+                    )
                 }
             }
             items(records, key = { it.id }, contentType = { "record" }) { record ->

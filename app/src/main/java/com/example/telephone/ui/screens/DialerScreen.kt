@@ -103,6 +103,7 @@ internal fun DialerScreen(
     var message by remember { mutableStateOf("") }
     var callMessage by remember { mutableStateOf("") }
     var callSubmitting by remember { mutableStateOf(false) }
+    var customerStatusMarking by remember { mutableStateOf(false) }
     var call by remember { mutableStateOf<CallUi?>(null) }
     var callCustomerStatusChanged by remember { mutableStateOf(false) }
     var callStatusMarking by remember { mutableStateOf(false) }
@@ -197,7 +198,7 @@ internal fun DialerScreen(
     fun markCustomerStatus(status: Int) {
         val target = customer ?: return
         val page = customerPage
-        loading = true
+        customerStatusMarking = true
         message = ""
         thread {
             runCatching {
@@ -211,9 +212,17 @@ internal fun DialerScreen(
             }.onSuccess {
                 runOnMain { showCustomerPage(it) }
             }.onFailure {
-                runOnMain { if (it is AuthExpiredException) onAuthExpired() else message = it.message ?: "标记失败" }
+                runOnMain {
+                    if (it is AuthExpiredException) {
+                        onAuthExpired()
+                    } else {
+                        val errorMessage = it.message ?: "标记失败"
+                        message = errorMessage
+                        Toast.makeText(context, errorMessage, Toast.LENGTH_LONG).show()
+                    }
+                }
             }
-            runOnMain { loading = false }
+            runOnMain { customerStatusMarking = false }
         }
     }
 
@@ -223,6 +232,8 @@ internal fun DialerScreen(
         callStatusMarking = true
         thread {
             runCatching {
+                val recordId = ended.recordId ?: error("缺少通话记录，无法标记")
+                session.api.syncCallRecord(session.token, recordId, ended.durationSeconds, ended.recordingUrl)
                 session.api.updateCustomerStatus(session.token, ended.customer.id, status)
             }.onSuccess {
                 runOnMain {
@@ -230,7 +241,15 @@ internal fun DialerScreen(
                     callMessage = if (status == 4) "已标记为无效" else "已标记为成交"
                 }
             }.onFailure { error ->
-                runOnMain { if (error is AuthExpiredException) onAuthExpired() else callMessage = error.message ?: "标记失败" }
+                runOnMain {
+                    if (error is AuthExpiredException) {
+                        onAuthExpired()
+                    } else {
+                        val errorMessage = error.message ?: "标记失败"
+                        callMessage = errorMessage
+                        Toast.makeText(context, errorMessage, Toast.LENGTH_LONG).show()
+                    }
+                }
             }
             runOnMain { callStatusMarking = false }
         }
@@ -435,6 +454,7 @@ internal fun DialerScreen(
                         customer = customer,
                         loading = loading,
                         callLoading = callSubmitting,
+                        statusLoading = customerStatusMarking,
                         message = message,
                         page = customerPage,
                         total = customerTotal,

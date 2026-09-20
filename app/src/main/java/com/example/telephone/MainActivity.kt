@@ -17,10 +17,12 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -99,6 +101,7 @@ private fun ThemedTelephoneApp(activity: ComponentActivity) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("telephone_app", Context.MODE_PRIVATE) }
     var session by remember { mutableStateOf(loadSession(prefs)) }
+    var authExpired by remember { mutableStateOf(false) }
     var themeMode by remember { mutableStateOf(ThemeMode.fromStorage(prefs.getString("theme_mode", null))) }
     val darkTheme = when (themeMode) {
         ThemeMode.System -> isSystemInDarkTheme()
@@ -122,10 +125,8 @@ private fun ThemedTelephoneApp(activity: ComponentActivity) {
             }
             RuntimePermissionsRequest()
             DefaultDialerRequest()
-            if (!IncomingCallGate(session, onAuthExpired = {
-                    clearSession(prefs)
-                    session = null
-                })) {
+            val onAuthExpired = { authExpired = true }
+            if (!IncomingCallGate(session, onAuthExpired = onAuthExpired)) {
                 TelephoneApp(
                     activity = activity,
                     prefs = prefs,
@@ -133,9 +134,26 @@ private fun ThemedTelephoneApp(activity: ComponentActivity) {
                     onSessionChange = { session = it },
                     themeMode = themeMode,
                     darkTheme = darkTheme,
+                    onAuthExpired = onAuthExpired,
                     onThemeModeChange = {
                         themeMode = it
                         prefs.edit().putString("theme_mode", it.name).apply()
+                    },
+                )
+            }
+            if (authExpired) {
+                AlertDialog(
+                    onDismissRequest = {},
+                    title = { Text("登录已过期") },
+                    text = { Text("当前登录信息已过期，为了您的账户安全请重新登录") },
+                    confirmButton = {
+                        TextButton(
+                            onClick = {
+                                authExpired = false
+                                clearSession(prefs)
+                                session = null
+                            },
+                        ) { Text("确认") }
                     },
                 )
             }
@@ -317,6 +335,7 @@ private fun TelephoneApp(
     onSessionChange: (Session?) -> Unit,
     themeMode: ThemeMode,
     darkTheme: Boolean,
+    onAuthExpired: () -> Unit,
     onThemeModeChange: (ThemeMode) -> Unit,
 ) {
     val loginNavigationBarColor = CallActiveBlue.copy(alpha = 0.06f).compositeOver(CallBackground)
@@ -356,6 +375,7 @@ private fun TelephoneApp(
             session = session!!,
             themeMode = themeMode,
             onThemeModeChange = onThemeModeChange,
+            onAuthExpired = onAuthExpired,
             onLogout = logout,
         )
     }
@@ -363,7 +383,13 @@ private fun TelephoneApp(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun HomeScreen(session: Session, themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, onLogout: () -> Unit) {
+private fun HomeScreen(
+    session: Session,
+    themeMode: ThemeMode,
+    onThemeModeChange: (ThemeMode) -> Unit,
+    onAuthExpired: () -> Unit,
+    onLogout: () -> Unit,
+) {
     val context = LocalContext.current
     var selectedTab by rememberSaveable { mutableStateOf(MainTab.Dialer) }
     var detailRecordId by rememberSaveable { mutableStateOf<Int?>(null) }
@@ -381,7 +407,7 @@ private fun HomeScreen(session: Session, themeMode: ThemeMode, onThemeModeChange
     }
     LaunchedEffect(session.token) {
         while (true) {
-            PendingCallSyncWorker.sync(context, session)
+            PendingCallSyncWorker.sync(context, session, onAuthExpired)
             kotlinx.coroutines.delay(60_000)
         }
     }
@@ -418,33 +444,33 @@ private fun HomeScreen(session: Session, themeMode: ThemeMode, onThemeModeChange
                 DialerScreen(
                     session,
                     padding,
-                    onAuthExpired = onLogout,
+                    onAuthExpired = onAuthExpired,
                     onChromeHiddenChange = { dialerHidesChrome = it },
                     refreshToken = dialerRefreshToken,
                 )
             }
             KeepAliveTab(MainTab.Stats, selectedTab) {
-                StatsScreen(session, padding, onAuthExpired = onLogout, viewModel = statsViewModel)
+                StatsScreen(session, padding, onAuthExpired = onAuthExpired, viewModel = statsViewModel)
             }
             KeepAliveTab(MainTab.Records, selectedTab, onShow = { recordsRefreshToken++ }) {
                 RecordsScreen(
                     session = session,
                     padding = padding,
-                    onAuthExpired = onLogout,
+                    onAuthExpired = onAuthExpired,
                     onChromeHiddenChange = { recordsHidesChrome = it },
                     refreshToken = recordsRefreshToken,
                     onOpenDetail = { recordId -> detailRecordId = recordId },
                 )
             }
             KeepAliveTab(MainTab.Profile, selectedTab) {
-                ProfileScreen(session, themeMode, onThemeModeChange, onLogout, padding)
+                ProfileScreen(session, themeMode, onThemeModeChange, onAuthExpired, onLogout, padding)
             }
             detailRecordId?.let { recordId ->
                 Box(Modifier.fillMaxSize().zIndex(2f)) {
                     RecordsScreen(
                     session = session,
                     padding = padding,
-                    onAuthExpired = onLogout,
+                    onAuthExpired = onAuthExpired,
                     onChromeHiddenChange = {},
                     refreshToken = recordsRefreshToken,
                     detailId = recordId,

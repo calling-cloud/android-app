@@ -22,8 +22,13 @@ import com.example.telephone.model.StatisticsSummary
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.io.IOException
 import java.io.OutputStreamWriter
+import java.net.ConnectException
 import java.net.HttpURLConnection
+import java.net.NoRouteToHostException
+import java.net.SocketTimeoutException
+import java.net.UnknownHostException
 import java.net.URLEncoder
 import java.net.URL
 import java.security.KeyFactory
@@ -215,31 +220,50 @@ internal class ApiClient(val baseUrl: String) {
     }
 
     private fun request(method: String, path: String, token: String? = null, body: JSONObject? = null): JSONObject {
-        val connection = (URL("$baseUrl$path").openConnection() as HttpURLConnection).apply {
-            requestMethod = method
-            connectTimeout = 8000
-            readTimeout = 30_000
-            setRequestProperty("Accept", "application/json")
-            if (token != null) setRequestProperty("Authorization", "Bearer $token")
-            if (body != null) {
-                doOutput = true
-                setRequestProperty("Content-Type", "application/json")
-                OutputStreamWriter(outputStream).use { it.write(body.toString()) }
+        var connection: HttpURLConnection? = null
+        try {
+            connection = (URL("$baseUrl$path").openConnection() as HttpURLConnection).apply {
+                requestMethod = method
+                connectTimeout = 8000
+                readTimeout = 30_000
+                setRequestProperty("Accept", "application/json")
+                if (token != null) setRequestProperty("Authorization", "Bearer $token")
+                if (body != null) {
+                    doOutput = true
+                    setRequestProperty("Content-Type", "application/json")
+                    OutputStreamWriter(outputStream).use { it.write(body.toString()) }
+                }
             }
+            val statusCode = connection.responseCode
+            val text = if (statusCode in 200..299) {
+                connection.inputStream.bufferedReader().use { it.readText() }
+            } else {
+                connection.errorStream?.bufferedReader()?.use { it.readText() }.orEmpty()
+            }
+            if (statusCode == 401) throw AuthExpiredException()
+            if (statusCode in 500..599) {
+                throw IllegalStateException(serverErrorMessage(statusCode))
+            }
+            val json = JSONObject(text.ifBlank { "{}" })
+            if (statusCode !in 200..299 || json.optInt("code", -1) != 0) {
+                throw IllegalStateException(json.optString("message", "请求失败"))
+            }
+            return json
+        } catch (error: IOException) {
+            throw IllegalStateException(networkErrorMessage(error), error)
+        } finally {
+            connection?.disconnect()
         }
-        val text = if (connection.responseCode in 200..299) {
-            connection.inputStream.bufferedReader().use { it.readText() }
-        } else {
-            connection.errorStream?.bufferedReader()?.use { it.readText() }.orEmpty()
-        }
-        val json = JSONObject(text.ifBlank { "{}" })
-        if (connection.responseCode == 401) throw AuthExpiredException()
-        if (connection.responseCode !in 200..299 || json.optInt("code", -1) != 0) {
-            throw IllegalStateException(json.optString("message", "请求失败"))
-        }
-        return json
     }
 }
+
+internal fun networkErrorMessage(error: IOException): String = when (error) {
+    is SocketTimeoutException -> "请求超时，请稍后重试"
+    is UnknownHostException, is ConnectException, is NoRouteToHostException -> "无法连接服务器，请检查网络或稍后重试"
+    else -> "网络请求失败，请检查网络连接"
+}
+
+internal fun serverErrorMessage(statusCode: Int) = "服务器异常（$statusCode），请稍后重试"
 
 private fun String.urlEncoded() = URLEncoder.encode(this, Charsets.UTF_8.name())
 
