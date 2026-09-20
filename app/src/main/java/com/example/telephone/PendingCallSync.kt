@@ -1,6 +1,7 @@
 package com.example.telephone
 
 import android.content.Context
+import com.example.telephone.model.AuthExpiredException
 import com.example.telephone.model.Session
 import org.json.JSONArray
 import org.json.JSONObject
@@ -82,13 +83,13 @@ internal object PendingCallSyncWorker {
     @Volatile
     private var running = false
 
-    fun sync(context: Context, session: Session) {
+    fun sync(context: Context, session: Session, onAuthExpired: () -> Unit) {
         if (running) return
         running = true
         val appContext = context.applicationContext
         thread {
             try {
-                PendingCallSyncCache.all(appContext).forEach { item ->
+                for (item in PendingCallSyncCache.all(appContext)) {
                     runCatching {
                         val recordingUrl = item.recordingUrl ?: uploadIfNeeded(appContext, session, item)
                         if (recordingUrl != item.recordingUrl && recordingUrl != null) {
@@ -96,6 +97,11 @@ internal object PendingCallSyncWorker {
                         }
                         session.api.syncCallRecord(session.token, item.recordId, item.durationSeconds, recordingUrl)
                         PendingCallSyncCache.remove(appContext, item.recordId)
+                    }.onFailure { error ->
+                        if (error is AuthExpiredException) {
+                            runOnMain(onAuthExpired)
+                            return@thread
+                        }
                     }
                 }
             } finally {

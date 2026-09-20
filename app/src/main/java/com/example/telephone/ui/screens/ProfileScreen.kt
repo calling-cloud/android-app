@@ -75,7 +75,14 @@ import com.example.telephone.update.startAppUpdateDownload
 import kotlin.concurrent.thread
 
 @Composable
-internal fun ProfileScreen(session: Session, themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, onLogout: () -> Unit, padding: PaddingValues) {
+internal fun ProfileScreen(
+    session: Session,
+    themeMode: ThemeMode,
+    onThemeModeChange: (ThemeMode) -> Unit,
+    onAuthExpired: () -> Unit,
+    onLogout: () -> Unit,
+    padding: PaddingValues,
+) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val currentVersionCode = remember { AppUpdateInstaller.currentVersionCode(context) }
     var oldPassword by remember { mutableStateOf("") }
@@ -167,7 +174,7 @@ internal fun ProfileScreen(session: Session, themeMode: ThemeMode, onThemeModeCh
                                 thread {
                                     runCatching { session.api.changePassword(session.token, oldPassword, newPassword) }
                                         .onSuccess { runOnMain { oldPassword = ""; newPassword = ""; message = "密码已修改"; showPasswordDialog = false } }
-                                        .onFailure { runOnMain { if (it is AuthExpiredException) onLogout() else message = it.message ?: "修改失败" } }
+                                        .onFailure { runOnMain { if (it is AuthExpiredException) onAuthExpired() else message = it.message ?: "修改失败" } }
                                     runOnMain { loading = false }
                                 }
                             },

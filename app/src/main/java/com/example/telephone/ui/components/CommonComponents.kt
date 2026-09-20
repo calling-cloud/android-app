@@ -93,11 +93,19 @@ import com.example.telephone.ui.UiCardPadding
 import com.example.telephone.ui.UiIconSize
 import com.example.telephone.ui.intentLevelLabel
 
+private val quickRemarkRows = listOf(
+    "无法拨通或空号",
+    "完全无意向",
+    "非目标群体",
+    "已被其他机构或组织成交",
+).chunked(2)
+
 @Composable
 internal fun CustomerCard(
     customer: Customer?,
     loading: Boolean,
     callLoading: Boolean = false,
+    statusLoading: Boolean = false,
     message: String,
     page: Int,
     total: Int,
@@ -179,7 +187,7 @@ internal fun CustomerCard(
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                 OutlinedButton(
-                    enabled = !loading && !callLoading && page > 1,
+                    enabled = !loading && !callLoading && !statusLoading && page > 1,
                     onClick = onPrevious,
                     modifier = Modifier.weight(1f).height(UiButtonHeight).defaultMinSize(minWidth = 0.dp),
                     shape = RoundedCornerShape(UiButtonRadius),
@@ -189,7 +197,7 @@ internal fun CustomerCard(
                     Icon(Icons.Filled.ChevronLeft, "上一位", modifier = Modifier.size(UiIconSize))
                 }
                 OutlinedButton(
-                    enabled = !loading && !callLoading && page > 1,
+                    enabled = !loading && !callLoading && !statusLoading && page > 1,
                     onClick = onReset,
                     modifier = Modifier.weight(1f).height(UiButtonHeight).defaultMinSize(minWidth = 0.dp),
                     shape = RoundedCornerShape(UiButtonRadius),
@@ -199,7 +207,7 @@ internal fun CustomerCard(
                     Icon(Icons.Filled.Autorenew, "重置", modifier = Modifier.size(UiIconSize))
                 }
                 OutlinedButton(
-                    enabled = !loading && !callLoading && customer != null,
+                    enabled = !loading && !callLoading && !statusLoading && customer != null,
                     onClick = onMarkInvalid,
                     modifier = Modifier.weight(1f).height(UiButtonHeight).defaultMinSize(minWidth = 0.dp),
                     shape = RoundedCornerShape(UiButtonRadius),
@@ -209,7 +217,7 @@ internal fun CustomerCard(
                     Icon(Icons.Filled.PersonOff, "标记为无效", modifier = Modifier.size(UiIconSize))
                 }
                 OutlinedButton(
-                    enabled = !loading && !callLoading && customer != null,
+                    enabled = !loading && !callLoading && !statusLoading && customer != null,
                     onClick = onMarkDeal,
                     modifier = Modifier.weight(1f).height(UiButtonHeight).defaultMinSize(minWidth = 0.dp),
                     shape = RoundedCornerShape(UiButtonRadius),
@@ -219,7 +227,7 @@ internal fun CustomerCard(
                     Icon(Icons.Filled.Gavel, "标记为成交", modifier = Modifier.size(UiIconSize))
                 }
                 OutlinedButton(
-                    enabled = !loading && !callLoading && total > 0 && page < total,
+                    enabled = !loading && !callLoading && !statusLoading && total > 0 && page < total,
                     onClick = onNext,
                     modifier = Modifier.weight(1f).height(UiButtonHeight).defaultMinSize(minWidth = 0.dp),
                     shape = RoundedCornerShape(UiButtonRadius),
@@ -230,7 +238,7 @@ internal fun CustomerCard(
                 }
             }
             Button(
-                enabled = customer != null && !loading && !callLoading,
+                enabled = customer != null && !loading && !callLoading && !statusLoading,
                 onClick = { customer?.let(onCall) },
                 modifier = Modifier.fillMaxWidth().height(UiButtonHeight),
                 shape = RoundedCornerShape(UiButtonRadius),
@@ -463,6 +471,34 @@ internal fun CallResultForm(call: CallUi, message: String = "", marking: Boolean
                     textAlign = TextAlign.Start,
                 )
                 Spacer(Modifier.height(10.dp))
+                quickRemarkRows.forEach { row ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        row.forEach { phrase ->
+                            Button(
+                                onClick = { remark = phrase },
+                                modifier = Modifier.weight(1f).defaultMinSize(minHeight = 44.dp),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
+                                shape = RoundedCornerShape(UiButtonRadius),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = if (remark == phrase) CallActiveBlue else CallButtonColor,
+                                    contentColor = if (remark == phrase) CallActionContent else CallText,
+                                ),
+                            ) {
+                                Text(
+                                    phrase,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    textAlign = TextAlign.Center,
+                                )
+                            }
+                        }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                }
                 OutlinedTextField(
                     value = remark,
                     onValueChange = { remark = it },
